@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  geoinfer-db:
+    image: postgres:17.6
+    environment:
+      POSTGRES_DB: geoinfer
+      POSTGRES_USER: geoinfer
+      POSTGRES_PASSWORD: geoinfer_dev_password
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U geoinfer -d geoinfer"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+volumes:
+  postgres_data:
+  redis_data:
