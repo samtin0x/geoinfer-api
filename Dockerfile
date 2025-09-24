@@ -47,9 +47,5 @@ USER app
 # Expose the application port
 EXPOSE 8010
 
-# Health check (can be disabled via environment variable)
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8010/health || exit 1
-
 # Default production command (can be overridden)
 CMD ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8010"]

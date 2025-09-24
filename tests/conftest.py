@@ -1,12 +1,16 @@
 """Global test configuration and fixtures for GeoInfer API."""
 
+import os
 from collections.abc import AsyncGenerator
 from typing import Callable
+from urllib.parse import urlparse
 from uuid import uuid4
 
 import pytest
 import pytest_asyncio
+from sqlalchemy import create_engine, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy_utils import create_database, database_exists, drop_database
 
 from asgi_lifespan import LifespanManager
 from fastapi import FastAPI
@@ -53,33 +57,112 @@ def disable_external_cache(monkeypatch):
     )
 
 
+@pytest.fixture(scope="session")
+def worker_id(request):
+    """Get pytest-xdist worker ID or 'main' for single process."""
+    if hasattr(request.config, "workerinput"):
+        return request.config.workerinput["workerid"]
+    return "main"
+
+
+@pytest.fixture(scope="session")
+def test_database_uri(worker_id):
+    """Create a test database per worker for parallel testing."""
+    # Get base database URL from environment or default
+    base_database_url = os.getenv(
+        "DATABASE_URL",
+        "postgresql://geoinfer:geoinfer_dev_password@localhost:5433/geoinfer",
+    )
+
+    # Parse and create test database name
+    parsed = urlparse(base_database_url)
+    test_database_name = f"test_geoinfer_{worker_id}"
+    test_database = parsed._replace(path=f"/{test_database_name}")
+
+    # Create sync URL for database operations
+    sync_dsn = test_database._replace(scheme="postgresql+psycopg2").geturl()
+    async_dsn = test_database._replace(scheme="postgresql+asyncpg").geturl()
+
+    # Drop existing test database if it exists
+    if database_exists(sync_dsn):
+        drop_database(sync_dsn)
+
+    # Create new test database
+    create_database(sync_dsn)
+
+    # Create all tables using sync engine
+    sync_engine = create_engine(sync_dsn)
+    Base.metadata.create_all(sync_engine)
+    sync_engine.dispose()
+
+    yield async_dsn
+
+    # Clean up: drop test database with retry mechanism
+    if database_exists(sync_dsn):
+        try:
+            drop_database(sync_dsn)
+        except Exception as e:
+            # If drop fails due to active connections, try to force disconnect and retry
+            print(f"Warning: Failed to drop test database {test_database_name}: {e}")
+            try:
+                # Connect to postgres database to kill connections
+                base_postgres_url = parsed._replace(path="/postgres")
+                base_sync_dsn = base_postgres_url._replace(
+                    scheme="postgresql+psycopg2"
+                ).geturl()
+                temp_engine = create_engine(base_sync_dsn)
+                with temp_engine.connect() as conn:
+                    # Terminate all connections to the test database
+                    conn.execute(
+                        text(
+                            f"""
+                        SELECT pg_terminate_backend(pid) 
+                        FROM pg_stat_activity 
+                        WHERE datname = '{test_database_name}' AND pid <> pg_backend_pid()
+                    """
+                        )
+                    )
+                    conn.commit()
+                temp_engine.dispose()
+                # Now try to drop again
+                drop_database(sync_dsn)
+            except Exception as e2:
+                print(
+                    f"Warning: Could not clean up test database {test_database_name}: {e2}"
+                )
+
+
 @pytest_asyncio.fixture(scope="session")
-async def async_engine():
-    """Provision an in-memory SQLite async engine for tests."""
-    # Use SQLite for testing - much faster and no external dependencies
-    database_url = "sqlite+aiosqlite:///:memory:"
-    engine = create_async_engine(database_url, echo=False, future=True)
-
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        # SQLite doesn't support ALTER COLUMN NOT NULL - design models appropriately
-
+async def async_engine(test_database_uri):
+    """Create async engine for the test database."""
+    engine = create_async_engine(
+        test_database_uri, echo=False, future=True, pool_pre_ping=True, pool_recycle=300
+    )
     yield engine
-
+    # Ensure all connections are properly closed
     await engine.dispose()
 
 
 @pytest_asyncio.fixture
 async def db_session(async_engine) -> AsyncGenerator[AsyncSession, None]:
-    """Provide a database session wrapped in a rollback to isolate tests."""
-    async_session_factory = async_sessionmaker(async_engine, expire_on_commit=False)
+    """Provide a database session with proper transaction isolation."""
+    # Create a connection and start a transaction
+    connection = await async_engine.connect()
+    transaction = await connection.begin()
+
+    # Create a session bound to the connection
+    async_session_factory = async_sessionmaker(bind=connection, expire_on_commit=False)
 
     async with async_session_factory() as session:
         try:
             yield session
         finally:
-            # Rollback any uncommitted changes to isolate tests
-            await session.rollback()
+            # Close the session first
+            await session.close()
+            # Rollback the transaction
+            await transaction.rollback()
+            # Close the connection
+            await connection.close()
 
 
 @pytest_asyncio.fixture
@@ -122,8 +205,10 @@ async def test_organization(
     db_session: AsyncSession, organization_factory
 ) -> Organization:
     """Create a test organization."""
+    from uuid import uuid4
+
     org = await organization_factory.create_async(
-        db_session, name="Test Organization", plan_tier=PlanTier.FREE
+        db_session, id=uuid4(), name="Test Organization", plan_tier=PlanTier.FREE
     )
     return org
 
@@ -133,10 +218,14 @@ async def test_user(
     db_session: AsyncSession, user_factory, test_organization: Organization
 ) -> User:
     """Create a test user associated with test organization."""
+    from uuid import uuid4
+
+    user_uuid = uuid4()
     user = await user_factory.create_async(
         db_session,
+        id=user_uuid,
         name="Test User",
-        email="test@example.com",
+        email=f"test-{user_uuid.hex[:8]}@example.com",  # Unique email per test
         organization_id=test_organization.id,
     )
     return user
@@ -150,10 +239,14 @@ async def test_admin_user(
     test_organization: Organization,
 ) -> User:
     """Create a test admin user with admin role."""
+    from uuid import uuid4
+
+    user_uuid = uuid4()
     user = await user_factory.create_async(
         db_session,
+        id=user_uuid,
         name="Admin User",
-        email="admin@example.com",
+        email=f"admin-{user_uuid.hex[:8]}@example.com",  # Unique email per test
         organization_id=test_organization.id,
     )
 
@@ -178,10 +271,14 @@ async def test_member_user(
     test_admin_user: User,
 ) -> User:
     """Create a test member user with member role."""
+    from uuid import uuid4
+
+    user_uuid = uuid4()
     user = await user_factory.create_async(
         db_session,
+        id=user_uuid,
         name="Member User",
-        email="member@example.com",
+        email=f"member-{user_uuid.hex[:8]}@example.com",  # Unique email per test
         organization_id=test_organization.id,
     )
 
@@ -364,6 +461,7 @@ def create_user_factory(
         """Create a user with optional configuration."""
         user = await user_factory.create_async(
             db_session,
+            id=uuid4(),
             email=email or f"user-{uuid4().hex[:8]}@example.com",
             name=name or f"Test User {uuid4().hex[:8]}",
             organization_id=(organization or test_organization).id,
