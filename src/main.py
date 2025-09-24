@@ -16,7 +16,7 @@ from src.api.core.middleware.security import (
 from src.api.core.constants import API_VERSION
 from src.api.router import api_router
 from src.database.connection import AsyncSessionLocal
-from src.services.prediction.inference import load_geoclip_model
+from src.modules.prediction.infrastructure.inference import load_geoclip_model
 from src.utils.settings.app import AppSettings
 from src.utils.logger import setup_logging
 

@@ -1,53 +1,36 @@
-import os
-from collections.abc import AsyncGenerator, Generator
-from contextlib import contextmanager
-from uuid import uuid4
+"""Global test configuration and fixtures for GeoInfer API."""
+
+from collections.abc import AsyncGenerator
 from typing import Callable
+from uuid import uuid4
 
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
-from sqlalchemy import text
-from sqlalchemy.engine.url import make_url
-
-from testcontainers.postgres import PostgresContainer
-
 
 from asgi_lifespan import LifespanManager
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from jose import jwt
-from uuid import UUID
 
-from src.database.models import Base, User, Organization
-from src.database.models import PlanTier
+from src.database.models import (
+    Base,
+    User,
+    Organization,
+    ApiKey,
+    PlanTier,
+    OrganizationRole,
+)
 from src.api.core.constants import JWT_ALGORITHM
 from src.utils.settings.auth import AuthSettings
 
-
-# Test Data Factories
-def create_test_user(user_id: UUID = None, email: str = "test@example.com") -> User:
-    """Factory to create test user objects."""
-    return User(
-        id=user_id or uuid4(),
-        email=email,
-        name="Test User",
-        organization_id=uuid4(),  # Will be overridden by fixture
-        avatar_url=None,
-        locale="en",
-    )
-
-
-def create_test_organization(
-    org_id: UUID = None, plan_tier: PlanTier = PlanTier.FREE
-) -> Organization:
-    """Factory to create test organization objects."""
-    return Organization(
-        id=org_id or uuid4(),
-        name="Test Organization",
-        logo_url=None,
-        plan_tier=plan_tier,
-    )
+# Import all factories
+from tests.factories import (
+    UserFactory,
+    OrganizationFactory,
+    ApiKeyFactory,
+    UserOrganizationRoleFactory,
+)
 
 
 @pytest.fixture(autouse=True)
@@ -70,40 +53,20 @@ def disable_external_cache(monkeypatch):
     )
 
 
-@contextmanager
-def _postgres_container() -> Generator[str, None, None]:
-    """Yield a PostgreSQL connection URL using testcontainers or env override."""
-    existing_url = os.getenv("TEST_DATABASE_URL")
-    if existing_url:
-        yield existing_url
-        return
-
-    image = os.getenv("TEST_POSTGRES_IMAGE", "postgres:17-alpine")
-    with PostgresContainer(image) as container:
-        container.start()
-        yield container.get_connection_url()
-
-
 @pytest_asyncio.fixture(scope="session")
 async def async_engine():
-    """Provision a postgres-backed async engine for tests."""
-    with _postgres_container() as sync_url:
-        url = make_url(sync_url)
-        async_url = url.set(drivername="postgresql+asyncpg").render_as_string(
-            hide_password=False
-        )
-        engine = create_async_engine(async_url, echo=False, future=True)
+    """Provision an in-memory SQLite async engine for tests."""
+    # Use SQLite for testing - much faster and no external dependencies
+    database_url = "sqlite+aiosqlite:///:memory:"
+    engine = create_async_engine(database_url, echo=False, future=True)
 
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-            # Match metadata change to allow deferred organization assignment
-            await conn.execute(
-                text("ALTER TABLE users ALTER COLUMN organization_id DROP NOT NULL")
-            )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+        # SQLite doesn't support ALTER COLUMN NOT NULL - design models appropriately
 
-        yield engine
+    yield engine
 
-        await engine.dispose()
+    await engine.dispose()
 
 
 @pytest_asyncio.fixture
@@ -119,40 +82,6 @@ async def db_session(async_engine) -> AsyncGenerator[AsyncSession, None]:
             await session.rollback()
 
 
-@pytest.fixture()
-def sample_user_id() -> str:
-    """Generate a sample UUID string for test users."""
-    return str(uuid4())
-
-
-# Factory fixtures that create objects without committing
-@pytest_asyncio.fixture
-async def test_organization_factory():
-    """Factory to create test organizations without committing."""
-
-    def create_org():
-        org = create_test_organization()
-        return org
-
-    return create_org
-
-
-@pytest_asyncio.fixture
-async def test_user_factory(test_organization_factory):
-    """Factory to create test users without committing."""
-
-    def create_user(organization_id=None):
-        if organization_id is None:
-            org = test_organization_factory()
-            organization_id = org.id
-
-        user = create_test_user()
-        user.organization_id = organization_id
-        return user
-
-    return create_user
-
-
 @pytest_asyncio.fixture
 async def app():
     """Create FastAPI application with lifespan manager for testing."""
@@ -162,8 +91,124 @@ async def app():
         yield app
 
 
+# Database Factory Fixtures
+@pytest.fixture
+def organization_factory():
+    """Factory for creating Organization instances."""
+    return OrganizationFactory
+
+
+@pytest.fixture
+def user_factory():
+    """Factory for creating User instances."""
+    return UserFactory
+
+
+@pytest.fixture
+def api_key_factory():
+    """Factory for creating ApiKey instances."""
+    return ApiKeyFactory
+
+
+@pytest.fixture
+def role_factory():
+    """Factory for creating UserOrganizationRole instances."""
+    return UserOrganizationRoleFactory
+
+
+# Test Data Fixtures
+@pytest_asyncio.fixture
+async def test_organization(
+    db_session: AsyncSession, organization_factory
+) -> Organization:
+    """Create a test organization."""
+    org = await organization_factory.create_async(
+        db_session, name="Test Organization", plan_tier=PlanTier.FREE
+    )
+    return org
+
+
+@pytest_asyncio.fixture
+async def test_user(
+    db_session: AsyncSession, user_factory, test_organization: Organization
+) -> User:
+    """Create a test user associated with test organization."""
+    user = await user_factory.create_async(
+        db_session,
+        name="Test User",
+        email="test@example.com",
+        organization_id=test_organization.id,
+    )
+    return user
+
+
+@pytest_asyncio.fixture
+async def test_admin_user(
+    db_session: AsyncSession,
+    user_factory,
+    role_factory,
+    test_organization: Organization,
+) -> User:
+    """Create a test admin user with admin role."""
+    user = await user_factory.create_async(
+        db_session,
+        name="Admin User",
+        email="admin@example.com",
+        organization_id=test_organization.id,
+    )
+
+    # Assign admin role
+    await role_factory.create_async(
+        db_session,
+        user_id=user.id,
+        organization_id=test_organization.id,
+        role=OrganizationRole.ADMIN,
+        granted_by_id=user.id,  # Self-granted for test
+    )
+
+    return user
+
+
+@pytest_asyncio.fixture
+async def test_member_user(
+    db_session: AsyncSession,
+    user_factory,
+    role_factory,
+    test_organization: Organization,
+    test_admin_user: User,
+) -> User:
+    """Create a test member user with member role."""
+    user = await user_factory.create_async(
+        db_session,
+        name="Member User",
+        email="member@example.com",
+        organization_id=test_organization.id,
+    )
+
+    # Assign member role
+    await role_factory.create_async(
+        db_session,
+        user_id=user.id,
+        organization_id=test_organization.id,
+        role=OrganizationRole.MEMBER,
+        granted_by_id=test_admin_user.id,
+    )
+
+    return user
+
+
+@pytest_asyncio.fixture
+async def test_api_key(db_session: AsyncSession, test_user: User) -> tuple[ApiKey, str]:
+    """Create a test API key for the test user."""
+    api_key, plain_key = ApiKey.create_key("Test API Key", test_user.id)
+    db_session.add(api_key)
+    await db_session.flush()
+    return api_key, plain_key
+
+
+# JWT Token Fixtures
 @pytest.fixture()
-def jwt_token_factory() -> Callable[[str, str], str]:
+def jwt_token_factory() -> Callable[[str, str, str], str]:
     """Factory for creating JWT tokens for test users."""
     auth_settings = AuthSettings()
 
@@ -194,24 +239,38 @@ def jwt_token_factory() -> Callable[[str, str], str]:
     return create_token
 
 
-@pytest_asyncio.fixture
-async def test_user(test_organization_factory):
-    """Create a test user for testing."""
-    org = test_organization_factory()
-    user = create_test_user()
-    user.organization_id = org.id
-    return user
-
-
 @pytest.fixture
-def user_token(test_user: User, jwt_token_factory: Callable[[str, str], str]) -> str:
+def user_token(
+    test_user: User, jwt_token_factory: Callable[[str, str, str], str]
+) -> str:
     """Create a JWT token for the test user."""
     return jwt_token_factory(str(test_user.id), test_user.email, test_user.name)
 
 
+@pytest.fixture
+def admin_token(
+    test_admin_user: User, jwt_token_factory: Callable[[str, str, str], str]
+) -> str:
+    """Create a JWT token for the admin user."""
+    return jwt_token_factory(
+        str(test_admin_user.id), test_admin_user.email, test_admin_user.name
+    )
+
+
+@pytest.fixture
+def member_token(
+    test_member_user: User, jwt_token_factory: Callable[[str, str, str], str]
+) -> str:
+    """Create a JWT token for the member user."""
+    return jwt_token_factory(
+        str(test_member_user.id), test_member_user.email, test_member_user.name
+    )
+
+
+# HTTP Client Fixtures
 @pytest_asyncio.fixture
 async def public_client(app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
-    """Create HTTP client for testing FastAPI endpoints."""
+    """Create HTTP client for testing public endpoints."""
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test-geoinfer-api",
@@ -233,14 +292,94 @@ async def authorized_client(
 
 
 @pytest_asyncio.fixture
-async def api_key_client(app: FastAPI) -> AsyncGenerator[AsyncClient, None]:
+async def admin_client(
+    app: FastAPI, admin_token: str
+) -> AsyncGenerator[AsyncClient, None]:
+    """Create HTTP client with admin JWT authorization headers."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test-geoinfer-api",
+        headers={"Authorization": f"Bearer {admin_token}"},
+    ) as ac:
+        yield ac
+
+
+@pytest_asyncio.fixture
+async def member_client(
+    app: FastAPI, member_token: str
+) -> AsyncGenerator[AsyncClient, None]:
+    """Create HTTP client with member JWT authorization headers."""
+    async with AsyncClient(
+        transport=ASGITransport(app=app),
+        base_url="http://test-geoinfer-api",
+        headers={"Authorization": f"Bearer {member_token}"},
+    ) as ac:
+        yield ac
+
+
+@pytest_asyncio.fixture
+async def api_key_client(
+    app: FastAPI, test_api_key: tuple[ApiKey, str]
+) -> AsyncGenerator[AsyncClient, None]:
     """Create HTTP client with API key authorization headers."""
-    # Create a test API key
-    test_api_key = f"geo_test_{uuid4().hex[:32]}"
+    _, plain_key = test_api_key
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test-geoinfer-api",
-        headers={"X-GeoInfer-Key": test_api_key},
+        headers={"X-GeoInfer-Key": plain_key},
     ) as ac:
         yield ac
+
+
+# Helper fixtures for creating clients with different users
+@pytest.fixture
+def client_factory(app: FastAPI, jwt_token_factory):
+    """Factory for creating HTTP clients with different user contexts."""
+
+    async def create_client_for_user(user: User) -> AsyncClient:
+        """Create an authorized client for a specific user."""
+        token = jwt_token_factory(str(user.id), user.email, user.name)
+        return AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test-geoinfer-api",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+
+    return create_client_for_user
+
+
+@pytest.fixture
+def create_user_factory(
+    db_session: AsyncSession, user_factory, test_organization: Organization
+):
+    """Factory for creating users with different configurations for testing flows."""
+
+    async def create_user(
+        email: str | None = None,
+        name: str | None = None,
+        organization: Organization | None = None,
+        role: OrganizationRole | None = None,
+    ) -> User:
+        """Create a user with optional configuration."""
+        user = await user_factory.create_async(
+            db_session,
+            email=email or f"user-{uuid4().hex[:8]}@example.com",
+            name=name or f"Test User {uuid4().hex[:8]}",
+            organization_id=(organization or test_organization).id,
+        )
+
+        if role:
+            from tests.factories import UserOrganizationRoleFactory
+
+            await UserOrganizationRoleFactory.create_async(
+                db_session,
+                user_id=user.id,
+                organization_id=user.organization_id,
+                role=role,
+                granted_by_id=user.id,  # Self-granted for test
+            )
+
+        return user
+
+    return create_user

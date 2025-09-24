@@ -2,10 +2,10 @@
 
 from functools import wraps
 
-from fastapi import Request, status
+from fastapi import status
 
 from src.database.models import UsageType
-from src.services.prediction.credits import PredictionCreditService
+from src.modules.prediction.application.credits import PredictionCreditService
 from src.utils.logger import get_logger
 from src.api.core.exceptions.base import GeoInferException
 from src.api.core.messages import MessageCode
@@ -44,41 +44,31 @@ def cost(credits: int = 1, usage_type: UsageType = UsageType.GEOINFER_GLOBAL_0_0
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # Extract required objects from kwargs
-            request = None
+            # Use shared extractor for Request
+            from src.api.core.decorators._common import extract_request_and_redis
+
+            request, _ = extract_request_and_redis(*args, **kwargs)
             db = None
             current_user = None
             current_api_key = None
             auth_type = None
 
-            # Find request object
+            # Find DB session
             for arg in args:
-                if isinstance(arg, Request):
-                    request = arg
-                    break
-
-            if not request:
-                for value in kwargs.values():
-                    if isinstance(value, Request):
-                        request = value
-                        break
-
-            # Find database session
-            for arg in args:
-                if hasattr(arg, "execute"):  # AsyncSession duck typing
+                if hasattr(arg, "execute"):
                     db = arg
                     break
 
             if not db:
                 for value in kwargs.values():
-                    if hasattr(value, "execute"):  # AsyncSession duck typing
+                    if hasattr(value, "execute"):
                         db = value
                         break
 
             # Extract auth info from request.state (set by auth middleware)
-            current_user = request.state.user
-            current_organization = request.state.organization
-            current_api_key = request.state.api_key
+            current_user = request.state.user if request else None
+            current_organization = request.state.organization if request else None
+            current_api_key = request.state.api_key if request else None
             auth_type = "api_key" if current_api_key else "user"
 
             if not request or not db:

@@ -179,7 +179,9 @@ async def test_set_active_organization_success(
     db_session.add(org2)
     await db_session.commit()
 
-    response = await authorized_client.patch(f"/v1/user/organizations/{org2.id}/active")
+    response = await authorized_client.patch(
+        "/v1/user/organizations/active", json={"organization_id": str(org2.id)}
+    )
 
     assert response.status_code == status.HTTP_200_OK
 
@@ -188,27 +190,17 @@ async def test_set_active_organization_success(
     assert "message_code" in data
     assert data["message_code"] == "success"
 
-    # Verify the response includes updated organization list
-    updated_orgs = data["data"]
-    assert isinstance(updated_orgs, list)
-    assert len(updated_orgs) >= 1
-
-    # Find the newly activated organization
-    active_org = None
-    for org in updated_orgs:
-        if org["id"] == str(org2.id):
-            active_org = org
-            break
-
-    assert active_org is not None
-    assert active_org["is_active"] is True
+    # Verify the response contains success confirmation
+    response_data = data["data"]
+    assert "success" in response_data
+    assert response_data["success"] is True
 
 
 @pytest.mark.asyncio
 async def test_set_active_organization_invalid_id(app, authorized_client: AsyncClient):
     """Test setting active organization with invalid UUID."""
     response = await authorized_client.patch(
-        "/v1/user/organizations/invalid-uuid/active"
+        "/v1/user/organizations/active", json={"organization_id": "invalid-uuid"}
     )
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
@@ -222,7 +214,8 @@ async def test_set_active_organization_not_owned(
     non_existent_org_id = uuid.UUID("12345678-1234-5678-1234-567812345678")
 
     response = await authorized_client.patch(
-        f"/v1/user/organizations/{non_existent_org_id}/active"
+        "/v1/user/organizations/active",
+        json={"organization_id": str(non_existent_org_id)},
     )
 
     # Should fail because user doesn't own this organization
@@ -248,10 +241,14 @@ async def test_organization_switch_updates_context(
 
     # Try to switch to the second organization
     response2 = await authorized_client.patch(
-        f"/v1/user/organizations/{org2.id}/active"
+        "/v1/user/organizations/active", json={"organization_id": str(org2.id)}
     )
 
     assert response2.status_code == status.HTTP_200_OK
+
+    # Verify the response contains success confirmation
+    switch_data = response2.json()
+    assert switch_data["data"]["success"] is True
 
     # Verify the switch worked by getting organizations again
     response3 = await authorized_client.get("/v1/user/organizations")

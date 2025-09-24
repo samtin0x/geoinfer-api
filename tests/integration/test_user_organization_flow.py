@@ -14,9 +14,9 @@ from src.api.organization.requests import (
 )
 from src.database.models import PlanTier
 from src.database.models.organizations import OrganizationRole
-from src.services.organization.invitation_manager import OrganizationInvitationService
-from src.services.organization.service import OrganizationService
-from src.services.user.user_management import UserManagementService
+from src.modules.organization.invitation import OrganizationInvitationService
+from src.modules.organization.use_cases import OrganizationService
+from src.modules.user.management import UserManagementService
 
 
 @pytest.mark.asyncio(loop_scope="session")

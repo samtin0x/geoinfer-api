@@ -6,18 +6,20 @@ import redis.asyncio as redis
 
 from src.api.core.exceptions.base import GeoInferException
 from src.api.core.messages import MessageCode
-from src.services.auth.context import AuthenticatedUserContext
-from src.services.auth.api_keys import ApiKeyManagementService
-from src.services.auth.rate_limiting import RateLimiter
-from src.services.organization.permissions import PermissionService
-from src.services.organization.service import OrganizationService
-from src.services.prediction.credits import PredictionCreditService
-from src.services.redis_service import get_redis_client
-from src.services.user.user_management import UserManagementService
-from src.services.organization.invitation_manager import OrganizationInvitationService
-from src.services.user_onboarding_service import UserOnboardingService
-from src.services.user_organization_service import UserOrganizationService
-from src.analytics.service import AnalyticsService
+from src.core.context import AuthenticatedUserContext
+from src.modules.keys.api_keys import ApiKeyManagementService
+from src.core.rate_limiting import RateLimiter
+from src.modules.organization.permissions import PermissionService
+from src.modules.organization.use_cases import OrganizationService
+from src.modules.prediction.application.credits import PredictionCreditService
+from src.redis.client import get_redis_client
+from src.modules.user.management import UserManagementService
+from src.modules.organization.invitation import (
+    OrganizationInvitationService,
+)
+from src.modules.user.onboarding import UserOnboardingService
+from src.modules.user.organization import UserOrganizationService
+from src.modules.analytics.service import AnalyticsService
 
 
 async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]:

@@ -4,8 +4,8 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import HTMLResponse
 
 from src.api.core.dependencies import AsyncSessionDep
-from src.services.health.service import HealthService, OverallHealthStatus
-from src.services.redis_service import get_redis_client
+from src.modules.health.service import HealthService, OverallHealthStatus
+from src.redis.client import get_redis_client
 import redis.asyncio as redis
 from src.utils.logger import get_logger
 

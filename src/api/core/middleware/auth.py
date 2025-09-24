@@ -11,8 +11,11 @@ from src.utils.path_helpers import path_matches
 from src.api.core.messages import MessageCode
 from src.api.core.exceptions.base import GeoInferException
 from src.database.connection import get_async_db
-from src.services.auth.handlers import handle_api_key_auth, handle_jwt_auth
-from src.services.redis_service import get_redis_client
+from src.modules.user.auth_handlers import (
+    handle_api_key_auth,
+    handle_jwt_auth,
+)
+from src.redis.client import get_redis_client
 
 logger = structlog.get_logger(__name__)
 

@@ -10,7 +10,7 @@ from src.api.core.models.rate_limit import (
     ClientIdentifier,
     RateLimitClientType,
 )
-from src.services.auth.rate_limiting import RateLimiter
+from src.core.rate_limiting import RateLimiter
 from src.utils.logger import get_logger
 
 
@@ -104,34 +104,25 @@ def rate_limit(
         @wraps(func)
         async def wrapper(*args: Any, **kwargs: Any) -> Any:
             # Extract request and redis client from dependencies
-            request: Request | None = None
-            redis_client: redis.Redis | None = None
+            from src.api.core.decorators._common import extract_request_and_redis
 
-            # Find request in args/kwargs
-            for arg in args:
-                if isinstance(arg, Request):
-                    request = arg
-                    break
-            if not request:
-                request = kwargs.get("request")
-
-            # Find redis client in args/kwargs
-            for arg in args:
-                if isinstance(arg, redis.Redis):
-                    redis_client = arg
-                    break
-            if not redis_client:
-                redis_client = kwargs.get("redis_client")
+            request, redis_client = extract_request_and_redis(*args, **kwargs)
 
             if not request:
-                logger.error("Rate limit decorator: Request not found")
-                return await func(*args, **kwargs)
-
-            if not redis_client:
-                logger.warning(
-                    "Rate limit decorator: Redis client not found, skipping rate limit"
+                raise GeoInferException(
+                    MessageCode.INTERNAL_SERVER_ERROR,
+                    status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    details={"description": "Rate limit decorator: Request not found"},
                 )
-                return await func(*args, **kwargs)
+
+            if not redis_client:
+                raise GeoInferException(
+                    MessageCode.INTERNAL_SERVER_ERROR,
+                    status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    details={
+                        "description": "Rate limit decorator: Redis client not found, skipping rate limit"
+                    },
+                )
 
             # Check rate limit using typed client identification
             await check_rate_limit(request, redis_client, limit, window_seconds)

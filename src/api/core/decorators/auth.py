@@ -6,38 +6,12 @@ from fastapi import Request
 
 from src.api.core.exceptions.base import GeoInferException
 from src.database.models import OrganizationPermission, PlanTier
-from src.services.organization import PermissionService
+from src.modules.organization.permissions import PermissionService
 from src.utils.logger import get_logger
 from src.api.core.messages import MessageCode
 from fastapi import status
 
 logger = get_logger(__name__)
-
-
-# AuthType enum removed - no longer needed since with_auth decorator is removed
-
-
-# NOTE: with_auth decorator removed - just use request.state directly!
-#
-# Auth middleware sets these validated values in request.state:
-# - request.state.user (user JWT payload if authenticated via JWT)
-# - request.state.api_key (API key info if authenticated via API key)
-# - Path parameters may contain organization_id for organization-specific endpoints
-# - request.state.user (user object with id field if authenticated via JWT)
-#
-# Example:
-# async def my_endpoint(request: Request):
-#     user_info = request.state.user  # None if API key auth
-#     api_key_info = request.state.api_key  # None if user auth
-#     org_id = request.path_params.get("organization_id")  # From URL path
-#     user_id = request.state.user.id  # Always available if authenticated
-#
-#     if user_info:
-#         # Handle user authentication (JWT)
-#         pass
-#     elif api_key_info:
-#         # Handle API key authentication
-#         pass
 
 
 def require_permission(permission: OrganizationPermission):
@@ -184,12 +158,3 @@ def require_plan_tier(allowed_tiers: list[PlanTier]):
         return wrapper
 
     return decorator
-
-
-def require_enterprise():
-    """
-    Decorator to check if the user's organization has enterprise plan tier.
-
-    Convenience wrapper around require_plan_tier for enterprise-only endpoints.
-    """
-    return require_plan_tier([PlanTier.ENTERPRISE])

@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request
 
 from src.api.core.dependencies import AsyncSessionDep, CurrentUserAuthDep
 from src.api.core.messages import APIResponse, MessageCode
-from .handler import clear_current_user_organization_caches
+from src.cache.decorator import invalidate_plan_tier_cache
 
 router = APIRouter(prefix="/support", tags=["support"])
 
@@ -15,8 +15,12 @@ async def clear_cache_endpoint(
 ) -> APIResponse[bool]:
     """
     Clear Redis caches for the current user and organization."""
-    success = await clear_current_user_organization_caches(
-        current_user.user.id, current_user.organization.id
-    )
+    try:
+        await invalidate_plan_tier_cache(
+            current_user.user.id, current_user.organization.id
+        )
+        success = True
+    except Exception:
+        success = False
 
     return APIResponse.success(message_code=MessageCode.SUCCESS, data=success)

@@ -5,12 +5,14 @@ from fastapi import APIRouter, Request
 from src.api.core.dependencies import AsyncSessionDep, CurrentUserAuthDep
 from src.api.core.decorators.auth import require_permission
 from src.database.models.organizations import OrganizationPermission
-from .handler import (
-    get_organization_credit_balance_handler,
-    get_usage_history_handler,
-    get_credit_grants_history_handler,
+from src.api.core.messages import APIResponse, MessageCode, Paginated, PaginationInfo
+from src.modules.prediction.application.credits import PredictionCreditService
+from .schemas import (
+    UserCreditBalanceModel,
+    CreditGrantRecordModel,
+    CreditUsageRecordModel,
 )
-from .requests import (
+from src.api.credits.schemas import (
     UserCreditBalanceResponse,
     UsageHistoryResponse,
     CreditGrantsHistoryResponse,
@@ -30,11 +32,18 @@ async def get_credit_balance(
     current_user: CurrentUserAuthDep,
 ) -> UserCreditBalanceResponse:
     """Get current organization's credit balance and usage information."""
-
-    return await get_organization_credit_balance_handler(
-        db=db,
-        organization_id=current_user.organization.id,
+    credit_service = PredictionCreditService(db)
+    subscription_credits, top_up_credits = (
+        await credit_service.get_organization_credits(
+            organization_id=current_user.organization.id
+        )
     )
+    balance_data = UserCreditBalanceModel(
+        total_credits=subscription_credits + top_up_credits,
+        subscription_credits=subscription_credits,
+        top_up_credits=top_up_credits,
+    )
+    return APIResponse.success(message_code=MessageCode.SUCCESS, data=balance_data)
 
 
 @router.get("/consumption", response_model=UsageHistoryResponse)
@@ -47,13 +56,24 @@ async def get_credit_consumption_history(
     offset: int = 0,
 ) -> UsageHistoryResponse:
     """Get credit consumption history - records of when credits were consumed/used."""
-
-    return await get_usage_history_handler(
-        db=db,
-        organization_id=current_user.organization.id,
+    credit_service = PredictionCreditService(db)
+    records_data_raw, total_records = await credit_service.get_usage_history(
+        current_user.organization.id, limit, offset
+    )
+    records_data = [
+        CreditUsageRecordModel(**record_dict) for record_dict in records_data_raw
+    ]
+    pagination_info = PaginationInfo(
+        total=total_records,
         limit=limit,
         offset=offset,
+        has_more=offset + len(records_data) < total_records,
     )
+    paginated_data = Paginated[CreditUsageRecordModel](
+        items=records_data,
+        pagination=pagination_info,
+    )
+    return APIResponse.success(message_code=MessageCode.SUCCESS, data=paginated_data)
 
 
 @router.get("/grants", response_model=CreditGrantsHistoryResponse)
@@ -66,10 +86,21 @@ async def get_credit_grants_history(
     offset: int = 0,
 ) -> CreditGrantsHistoryResponse:
     """Get credit grants history - records of when credits were allocated/granted."""
-
-    return await get_credit_grants_history_handler(
-        db=db,
-        organization_id=current_user.organization.id,
+    credit_service = PredictionCreditService(db)
+    grants_data_raw, total_grants = await credit_service.get_credit_grants_history(
+        current_user.organization.id, limit, offset
+    )
+    grants_records = [
+        CreditGrantRecordModel(**grant_dict) for grant_dict in grants_data_raw
+    ]
+    pagination_info = PaginationInfo(
+        total=total_grants,
         limit=limit,
         offset=offset,
+        has_more=offset + len(grants_records) < total_grants,
     )
+    paginated_data = Paginated[CreditGrantRecordModel](
+        items=grants_records,
+        pagination=pagination_info,
+    )
+    return APIResponse.success(message_code=MessageCode.SUCCESS, data=paginated_data)

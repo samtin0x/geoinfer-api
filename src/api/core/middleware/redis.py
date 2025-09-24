@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from src.services.redis_service import close_redis_pool, is_redis_healthy
+from src.redis.client import close_redis_pool, is_redis_healthy
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)

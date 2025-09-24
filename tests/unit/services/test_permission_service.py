@@ -4,9 +4,9 @@ import pytest
 
 from src.database.models import PlanTier
 from src.database.models.organizations import OrganizationPermission, OrganizationRole
-from src.services.organization.permissions import PermissionService
-from src.services.organization.service import OrganizationService
-from src.services.user_onboarding_service import UserOnboardingService
+from src.modules.organization.permissions import PermissionService
+from src.modules.organization.use_cases import OrganizationService
+from src.modules.user.onboarding import UserOnboardingService
 
 
 @pytest.mark.asyncio(loop_scope="session")

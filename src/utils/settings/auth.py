@@ -1,5 +1,3 @@
-"""Authentication settings configuration."""
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.utils.logger import get_logger
@@ -12,4 +10,5 @@ class AuthSettings(BaseSettings):
 
     SUPABASE_URL: str = ""
     SUPABASE_KEY: str = ""
+    # Use plain string here to keep backward-compat with tests that treat this as a str
     SUPABASE_JWT_SECRET: str = ""

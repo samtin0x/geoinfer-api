@@ -1,5 +1,3 @@
-from src.api.billing.models import BillingProductsModel
-from src.api.core.messages import APIResponse
+from src.api.billing.schemas import BillingProductsResponse
 
-
-BillingProductsResponse = APIResponse[BillingProductsModel]
+__all__ = ["BillingProductsResponse"]

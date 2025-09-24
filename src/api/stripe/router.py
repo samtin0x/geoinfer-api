@@ -5,7 +5,7 @@ from fastapi import APIRouter, Request, status
 from src.api.core.dependencies import AsyncSessionDep
 from src.api.core.exceptions.base import GeoInferException
 from src.api.core.messages import MessageCode
-from src.services.stripe import StripeService
+from src.modules.billing.use_cases import StripePaymentService
 from src.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -32,7 +32,7 @@ async def stripe_webhook(
             )
 
         # Initialize Stripe service
-        stripe_service = StripeService(db)
+        stripe_service = StripePaymentService(db)
 
         # Validate webhook signature and get event
         event = stripe_service.validate_webhook_signature(payload, signature)

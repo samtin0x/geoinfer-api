@@ -86,3 +86,8 @@ class Organization(Base):
         back_populates="organization",
         cascade="all, delete-orphan",
     )
+    api_keys = relationship(
+        "ApiKey",
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )

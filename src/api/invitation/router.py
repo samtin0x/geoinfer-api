@@ -10,17 +10,9 @@ from src.api.core.dependencies import (
     CurrentUserAuthDep,
     OrganizationInvitationServiceDep,
 )
+from src.api.core.messages import APIResponse, MessageCode
 from src.database.models.organizations import OrganizationPermission, PlanTier
-from .handler import (
-    accept_invitation_handler,
-    cancel_invitation_handler,
-    create_invitation_handler,
-    decline_invitation_handler,
-    list_organization_invitations_handler,
-    get_user_pending_invitations_handler,
-    preview_invitation_handler,
-)
-from .requests import (
+from src.api.invitation.schemas import (
     InvitationAcceptRequest,
     InvitationAcceptResponse,
     InvitationCreateRequest,
@@ -28,6 +20,7 @@ from .requests import (
     InvitationDeclineRequest,
     InvitationDeclineResponse,
     InvitationListResponse,
+    InvitationModel,
     InvitationPreviewResponse,
 )
 
@@ -44,10 +37,13 @@ async def get_user_pending_invitations(
     current_user: CurrentUserAuthDep,
 ) -> InvitationListResponse:
     """Get all pending invitations for the current user."""
-    return await get_user_pending_invitations_handler(
-        invitation_service=invitation_service,
-        requesting_user_id=current_user.user.id,
+    invitations = await invitation_service.get_user_pending_invitations(
+        user_email=current_user.user.email
     )
+    invitation_data = [
+        InvitationModel.model_validate(invitation) for invitation in invitations
+    ]
+    return APIResponse.success(message_code=MessageCode.SUCCESS, data=invitation_data)
 
 
 @router.get("/preview/{token}", response_model=InvitationPreviewResponse)
@@ -57,10 +53,8 @@ async def preview_invitation(
     invitation_service: OrganizationInvitationServiceDep,
 ) -> InvitationPreviewResponse:
     """Preview invitation details without accepting it."""
-    return await preview_invitation_handler(
-        invitation_service=invitation_service,
-        token=token,
-    )
+    preview_data = await invitation_service.preview_invitation(token)
+    return APIResponse.success(message_code=MessageCode.SUCCESS, data=preview_data)
 
 
 @router.post("/accept", response_model=InvitationAcceptResponse)
@@ -71,10 +65,12 @@ async def accept_invitation(
     current_user: CurrentUserAuthDep,
 ) -> InvitationAcceptResponse:
     """Accept an organization invitation."""
-    return await accept_invitation_handler(
-        invitation_service=invitation_service,
-        invitation_data=invitation_data,
-        requesting_user_id=current_user.user.id,
+    invitation = await invitation_service.respond_to_invitation(
+        token=invitation_data.token, user_id=current_user.user.id, accept=True
+    )
+    return APIResponse.success(
+        message_code=MessageCode.INVITE_ACCEPTED,
+        data=InvitationModel.model_validate(invitation),
     )
 
 
@@ -86,10 +82,12 @@ async def decline_invitation(
     current_user: CurrentUserAuthDep,
 ) -> InvitationDeclineResponse:
     """Decline an organization invitation."""
-    return await decline_invitation_handler(
-        invitation_service=invitation_service,
-        invitation_data=invitation_data,
-        requesting_user_id=current_user.user.id,
+    invitation = await invitation_service.respond_to_invitation(
+        token=invitation_data.token, user_id=current_user.user.id, accept=False
+    )
+    return APIResponse.success(
+        message_code=MessageCode.INVITE_DECLINED,
+        data=InvitationModel.model_validate(invitation),
     )
 
 
@@ -104,12 +102,15 @@ async def create_invitation(
     current_user: CurrentUserAuthDep,
 ) -> InvitationCreateResponse:
     """Create a new organization invitation."""
-    organization_id = current_user.organization.id
-    return await create_invitation_handler(
-        invitation_service=invitation_service,
-        organization_id=organization_id,
-        invitation_data=invitation_data,
-        requesting_user_id=current_user.user.id,
+    invitation = await invitation_service.create_invitation(
+        organization_id=current_user.organization.id,
+        email=invitation_data.email,
+        invited_by_id=current_user.user.id,
+        expires_in_days=invitation_data.expires_in_days,
+    )
+    return APIResponse.success(
+        message_code=MessageCode.INVITE_CREATED,
+        data=InvitationModel.model_validate(invitation),
     )
 
 
@@ -124,10 +125,12 @@ async def cancel_invitation(
     current_user: CurrentUserAuthDep,
 ) -> InvitationAcceptResponse:
     """Cancel an organization invitation."""
-    return await cancel_invitation_handler(
-        invitation_service=invitation_service,
-        invitation_id=invitation_id,
-        requesting_user_id=current_user.user.id,
+    invitation = await invitation_service.cancel_invitation(
+        invitation_id=invitation_id, requesting_user_id=current_user.user.id
+    )
+    return APIResponse.success(
+        message_code=MessageCode.DELETED,
+        data=InvitationModel.model_validate(invitation),
     )
 
 
@@ -141,9 +144,11 @@ async def list_organization_invitations(
     current_user: CurrentUserAuthDep,
 ) -> InvitationListResponse:
     """List all invitations for the current user's organization (enterprise only)."""
-    organization_id = current_user.organization.id
-    return await list_organization_invitations_handler(
-        invitation_service=invitation_service,
-        organization_id=organization_id,
+    invitations = await invitation_service.list_organization_invitations(
+        organization_id=current_user.organization.id,
         requesting_user_id=current_user.user.id,
     )
+    invitation_data = [
+        InvitationModel.model_validate(invitation) for invitation in invitations
+    ]
+    return APIResponse.success(message_code=MessageCode.SUCCESS, data=invitation_data)

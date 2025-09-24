@@ -55,16 +55,16 @@ db-current:
 
 # Run tests with pytest (optional path parameter)
 test PATH="tests/":
-    uv run pytest {{ PATH }} -v
+    PYTHONPATH=. uv run pytest {{ PATH }} -v
 
 # Development server commands
 dev:
     @echo "Starting GeoInfer API development server..."
-    uv run python -c "from src.main import run_dev_server; run_dev_server()"
+    PYTHONPATH=. uv run python -c "from src.main import run_dev_server; run_dev_server()"
 
 prod:
     @echo "Starting GeoInfer API production server..."
-    uv run python -c "from src.main import run_prod_server; run_prod_server()"
+    PYTHONPATH=. uv run python -c "from src.main import run_prod_server; run_prod_server()"
 
 # Docker development commands
 docker-build:

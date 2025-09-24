@@ -4,7 +4,7 @@ import pytest
 from httpx import AsyncClient
 from fastapi import status
 
-from src.api.analytics.models import GroupByType
+from src.api.analytics.schemas import GroupByType
 
 
 @pytest.mark.asyncio

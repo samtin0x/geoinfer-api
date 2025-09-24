@@ -3,7 +3,7 @@ from uuid import uuid4
 import pytest
 
 from src.database.models import Organization, PlanTier
-from src.services.user_onboarding_service import UserOnboardingService
+from src.modules.user.onboarding import UserOnboardingService
 
 
 @pytest.mark.asyncio(loop_scope="session")

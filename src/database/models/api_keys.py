@@ -22,6 +22,9 @@ class ApiKey(Base):
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
     key_hash: Mapped[str] = mapped_column(String, nullable=False, unique=True)
+    organization_id: Mapped[UUID] = mapped_column(
+        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+    )
     user_id: Mapped[UUID] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
@@ -33,10 +36,13 @@ class ApiKey(Base):
     )
 
     # Relationships
+    organization = relationship("Organization", back_populates="api_keys")
     user = relationship("User", back_populates="api_keys")
 
     @classmethod
-    def create_key(cls, name: str, user_id: UUID) -> tuple["ApiKey", str]:
+    def create_key(
+        cls, name: str, organization_id: UUID, user_id: UUID
+    ) -> tuple["ApiKey", str]:
         """Create a new API key and return the model instance and plain key."""
         # Generate a secure random key
         plain_key = f"{GEO_API_KEY_PREFIX}{token_urlsafe(32)}"
@@ -46,6 +52,7 @@ class ApiKey(Base):
         api_key = cls(
             name=name,
             key_hash=key_hash,
+            organization_id=organization_id,
             user_id=user_id,
         )
 

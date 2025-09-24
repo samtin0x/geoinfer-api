@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Request, Query
 
-from .models import GroupByType
+from .schemas import GroupByType
 
 from src.api.core.dependencies import (
     AsyncSessionDep,
@@ -11,7 +11,7 @@ from src.api.core.dependencies import (
 )
 from src.api.core.decorators.auth import require_permission
 from src.database.models.organizations import OrganizationPermission
-from .models import (
+from .schemas import (
     UsageTimeseries,
     UserUsagePaginated,
     OrganizationAnalytics,

@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta
 from uuid import uuid4
 
 from sqlalchemy import select
-from src.services.prediction.credits import PredictionCreditService
+from src.modules.prediction.application.credits import PredictionCreditService
 from src.database.models import (
     CreditGrant,
     GrantType,

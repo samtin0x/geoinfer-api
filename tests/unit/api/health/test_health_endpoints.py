@@ -47,7 +47,7 @@ async def test_health_check_database_unhealthy(app, public_client: AsyncClient):
     """Test health check when database is unhealthy."""
     # Mock database to be unhealthy
     with patch(
-        "src.services.health.service.HealthService._check_database",
+        "src.modules.health.service.HealthService._check_database",
         return_value="unhealthy",
     ):
         response = await public_client.get("/health/")
@@ -62,7 +62,7 @@ async def test_health_check_redis_unhealthy(app, public_client: AsyncClient):
     """Test health check when Redis is unhealthy."""
     # Mock Redis to be unhealthy
     with patch(
-        "src.services.health.service.HealthService._check_redis",
+        "src.modules.health.service.HealthService._check_redis",
         return_value="unhealthy",
     ):
         response = await public_client.get("/health/")
@@ -140,11 +140,11 @@ async def test_health_check_detailed_error_info(app, public_client: AsyncClient)
     # Mock both database and Redis to be unhealthy
     with (
         patch(
-            "src.services.health.service.HealthService._check_database",
+            "src.modules.health.service.HealthService._check_database",
             return_value="unhealthy",
         ),
         patch(
-            "src.services.health.service.HealthService._check_redis",
+            "src.modules.health.service.HealthService._check_redis",
             return_value="unhealthy",
         ),
     ):
