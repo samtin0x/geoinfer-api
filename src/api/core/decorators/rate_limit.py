@@ -188,7 +188,9 @@ async def check_rate_limit(
             headers={
                 "X-RateLimit-Limit": str(result.limit),
                 "X-RateLimit-Reset": str(result.time_to_reset or result.window_seconds),
-                "X-RateLimit-Retry-After": str(result.time_to_reset or result.window_seconds),
+                "X-RateLimit-Retry-After": str(
+                    result.time_to_reset or result.window_seconds
+                ),
                 "X-RateLimit-Window": str(result.window_seconds),
             },
         )

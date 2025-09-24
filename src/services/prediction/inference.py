@@ -31,6 +31,7 @@ async def load_geoclip_model() -> GeoCLIP:
     if _model is None:
         # Suppress verbose logging from PyTorch and transformers
         import logging as py_logging
+
         py_logging.getLogger("torch").setLevel(py_logging.WARNING)
         py_logging.getLogger("transformers").setLevel(py_logging.WARNING)
         py_logging.getLogger("huggingface_hub").setLevel(py_logging.WARNING)

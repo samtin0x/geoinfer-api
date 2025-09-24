@@ -260,7 +260,9 @@ async def test_trial_prediction_rate_limit_headers(app, public_client: AsyncClie
             # Verify header values make sense
             assert response.headers["X-RateLimit-Remaining"] == "0"
             assert response.headers["X-RateLimit-Limit"] == "3"  # Trial limit
-            assert response.headers["X-RateLimit-Window"] == "86400"  # 24 hours in seconds
+            assert (
+                response.headers["X-RateLimit-Window"] == "86400"
+            )  # 24 hours in seconds
             break
     else:
         # If we didn't get a 429, the test might not be working as expected
