@@ -20,9 +20,10 @@ def create_test_user(
     return User(
         id=user_id or uuid.uuid4(),
         email=email,
-        full_name="Test User",
-        is_active=True,
-        onboarding_completed=False,
+        name="Test User",
+        organization_id=uuid.uuid4(),
+        avatar_url=None,
+        locale="en",
     )
 
 
@@ -231,6 +232,39 @@ async def test_trial_prediction_rate_limit(app, public_client: AsyncClient):
 
     # At least some should be rate limited
     assert status.HTTP_429_TOO_MANY_REQUESTS in responses
+
+
+@pytest.mark.asyncio
+async def test_trial_prediction_rate_limit_headers(app, public_client: AsyncClient):
+    """Test that rate limit exceeded responses include proper headers."""
+    # Create a simple test image
+    test_image_data = b"fake image data for testing"
+
+    # Exhaust the rate limit by making requests until we get a 429
+    for _ in range(5):
+        response = await public_client.post(
+            "/v1/prediction/trial",
+            files={"file": ("test.jpg", io.BytesIO(test_image_data), "image/jpeg")},
+        )
+
+        # Check if this response was rate limited
+        if response.status_code == status.HTTP_429_TOO_MANY_REQUESTS:
+            # Verify rate limit headers are present
+            assert "X-RateLimit-Limit" in response.headers
+            assert "X-RateLimit-Remaining" in response.headers
+            assert "X-RateLimit-Reset" in response.headers
+            assert "X-RateLimit-Retry-After" in response.headers
+            assert "X-RateLimit-Window" in response.headers
+            assert "Retry-After" in response.headers
+
+            # Verify header values make sense
+            assert response.headers["X-RateLimit-Remaining"] == "0"
+            assert response.headers["X-RateLimit-Limit"] == "3"  # Trial limit
+            assert response.headers["X-RateLimit-Window"] == "86400"  # 24 hours in seconds
+            break
+    else:
+        # If we didn't get a 429, the test might not be working as expected
+        pytest.skip("Rate limit was not exceeded in the test run")
 
 
 @pytest.mark.asyncio

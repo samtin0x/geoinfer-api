@@ -29,17 +29,20 @@ async def load_geoclip_model() -> GeoCLIP:
     """Load GeoCLIP model with CPU optimization. Should be called at startup."""
     global _model
     if _model is None:
-        logger.info("Loading GeoCLIP model...")
+        # Suppress verbose logging from PyTorch and transformers
+        import logging as py_logging
+        py_logging.getLogger("torch").setLevel(py_logging.WARNING)
+        py_logging.getLogger("transformers").setLevel(py_logging.WARNING)
+        py_logging.getLogger("huggingface_hub").setLevel(py_logging.WARNING)
+        py_logging.getLogger("urllib3").setLevel(py_logging.WARNING)
 
         # CPU optimization settings
         torch.set_num_threads(torch.get_num_threads())
-        logger.info(f"PyTorch using {torch.get_num_threads()} CPU threads")
-        logger.info(f"CUDA available: {torch.cuda.is_available()}")
 
         start_time = time.time()
         _model = GeoCLIP()
         load_time = time.time() - start_time
-        logger.info(f"GeoCLIP model loaded in {load_time:.3f} seconds")
+        logger.info(f"GeoCLIP model loaded in {load_time:.3f}s")
     return _model
 
 

@@ -20,7 +20,7 @@ async def test_get_usage_timeseries_success(
         data = response.json()
         assert "data" in data
         assert "message_code" in data
-        assert data["message_code"] == "success"
+        assert data["message_code"] == "SUCCESS"
 
         timeseries_data = data["data"]
         assert isinstance(timeseries_data, list)
@@ -101,7 +101,7 @@ async def test_get_user_usage_analytics_success(
         data = response.json()
         assert "data" in data
         assert "message_code" in data
-        assert data["message_code"] == "success"
+        assert data["message_code"] == "SUCCESS"
 
         analytics_data = data["data"]
         assert "users" in analytics_data
@@ -140,7 +140,7 @@ async def test_get_organization_analytics_success(
         data = response.json()
         assert "data" in data
         assert "message_code" in data
-        assert data["message_code"] == "success"
+        assert data["message_code"] == "SUCCESS"
 
         org_data = data["data"]
         assert isinstance(org_data, dict)
@@ -174,7 +174,7 @@ async def test_get_api_key_usage_analytics_success(
         data = response.json()
         assert "data" in data
         assert "message_code" in data
-        assert data["message_code"] == "success"
+        assert data["message_code"] == "SUCCESS"
 
         api_key_data = data["data"]
         assert isinstance(api_key_data, list)
@@ -278,4 +278,4 @@ async def test_analytics_endpoints_require_permissions(
             data = response.json()
             assert "data" in data
             assert "message_code" in data
-            assert data["message_code"] == "success"
+            assert data["message_code"] == "SUCCESS"

@@ -76,8 +76,10 @@ markers = [
 
 [dependency-groups]
 dev = [
+    "asgi-lifespan>=0.1.0",
     "jose>=1.0.0",
     "sqladmin>=0.21.0",
+    "testcontainers[postgres,redis]>=4.8.0",
     "types-pillow>=10.2.0.20240822",
     "types-stripe>=3.5.2.20240106",
 ]

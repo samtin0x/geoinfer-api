@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import func, select, and_, desc
+from sqlalchemy import func, select, and_, desc, literal
 from sqlalchemy.orm import selectinload
 
 from src.database.models import (
@@ -141,7 +141,7 @@ class AnalyticsService(BaseService):
             select(
                 ApiKey.id.label("entity_id"),
                 ApiKey.name.label("entity_name"),
-                func.literal(None).label("entity_email"),  # API keys don't have email
+                literal(None).label("entity_email"),  # API keys don't have email
                 func.count(UsageRecord.id).label("prediction_count"),
                 func.coalesce(func.sum(UsageRecord.credits_consumed), 0).label(
                     "credits_consumed"
@@ -270,7 +270,7 @@ class AnalyticsService(BaseService):
             select(
                 ApiKey.id.label("entity_id"),
                 ApiKey.name.label("entity_name"),
-                func.literal(None).label("entity_email"),
+                literal(None).label("entity_email"),
                 func.count(UsageRecord.id).label("prediction_count"),
                 func.coalesce(func.sum(UsageRecord.credits_consumed), 0).label(
                     "credits_consumed"

@@ -35,27 +35,27 @@ clean:
 # Database migration commands
 db-upgrade:
     @echo "Running database migrations..."
-    PYTHONPATH=. uv run alembic -c src/database/alembic.ini upgrade head
+    uv run alembic -c src/database/alembic.ini upgrade head
 
 db-downgrade REVISION="base":
     @echo "Downgrading database to {{ REVISION }}..."
-    PYTHONPATH=. uv run alembic -c src/database/alembic.ini downgrade {{ REVISION }}
+    uv run alembic -c src/database/alembic.ini downgrade {{ REVISION }}
 
 db-migration MESSAGE:
     @echo "Creating new migration: {{ MESSAGE }}"
-    PYTHONPATH=. uv run alembic -c src/database/alembic.ini revision --autogenerate -m "{{ MESSAGE }}"
+    uv run alembic -c src/database/alembic.ini revision --autogenerate -m "{{ MESSAGE }}"
 
 db-history:
     @echo "Migration history:"
-    PYTHONPATH=. uv run alembic -c src/database/alembic.ini history --verbose
+    uv run alembic -c src/database/alembic.ini history --verbose
 
 db-current:
     @echo "Current database revision:"
-    PYTHONPATH=. uv run alembic -c src/database/alembic.ini current
+    uv run alembic -c src/database/alembic.ini current
 
 # Run tests with pytest (optional path parameter)
 test PATH="tests/":
-    PYTHONPATH=. uv run pytest {{ PATH }} -v
+    uv run pytest {{ PATH }} -v
 
 # Development server commands
 dev:

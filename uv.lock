@@ -723,8 +723,10 @@ dev = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "asgi-lifespan" },
     { name = "jose" },
     { name = "sqladmin" },
+    { name = "testcontainers", extra = ["redis"] },
     { name = "types-pillow" },
     { name = "types-stripe" },
 ]
@@ -779,8 +781,10 @@ provides-extras = ["dev"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "asgi-lifespan", specifier = ">=0.1.0" },
     { name = "jose", specifier = ">=1.0.0" },
     { name = "sqladmin", specifier = ">=0.21.0" },
+    { name = "testcontainers", extras = ["postgres", "redis"], specifier = ">=4.8.0" },
     { name = "types-pillow", specifier = ">=10.2.0.20240822" },
     { name = "types-stripe", specifier = ">=3.5.2.20240106" },
 ]

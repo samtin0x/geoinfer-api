@@ -185,4 +185,10 @@ async def check_rate_limit(
                 "rate_key": client_identifier.to_cache_key(),
                 "client_type": result.client_identifier.client_type.value,
             },
+            headers={
+                "X-RateLimit-Limit": str(result.limit),
+                "X-RateLimit-Reset": str(result.time_to_reset or result.window_seconds),
+                "X-RateLimit-Retry-After": str(result.time_to_reset or result.window_seconds),
+                "X-RateLimit-Window": str(result.window_seconds),
+            },
         )

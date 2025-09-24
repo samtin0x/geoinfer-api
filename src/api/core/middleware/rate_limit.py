@@ -34,18 +34,7 @@ class RateLimitMiddleware:
         rate_limit_config = request.state.rate_limit_config
 
         if rate_limit_config:
-            try:
-                await self._check_rate_limit(request, rate_limit_config)
-            except GeoInferException as e:
-                response = JSONResponse(
-                    status_code=e.status_code,
-                    content=e.to_response_dict(),
-                    headers={
-                        "Retry-After": str(rate_limit_config.get("retry_after", 60))
-                    },
-                )
-                await response(scope, receive, send)
-                return
+            await self._check_rate_limit(request, rate_limit_config)
 
         await self.app(scope, receive, send)
 
