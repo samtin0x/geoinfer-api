@@ -67,29 +67,45 @@ else
   echo "[remote:docker] No existing container found"
 fi
 
-echo "[remote:docker] Checking for services using port 80 ..."
-if netstat -tlnp 2>/dev/null | grep -q ":80 "; then
-  echo "[remote:docker] Port 80 is in use. Checking what's using it:"
-  netstat -tlnp 2>/dev/null | grep ":80 " || true
+echo "[remote:docker] Forcefully clearing port 80 ..."
+
+# Stop nginx unconditionally
+echo "[remote:docker] Stopping nginx ..."
+sudo systemctl stop nginx 2>/dev/null || true
+sudo systemctl disable nginx 2>/dev/null || true
+
+# Stop old geoinfer-api service unconditionally  
+echo "[remote:docker] Stopping old geoinfer-api systemd service ..."
+sudo systemctl stop geoinfer-api 2>/dev/null || true
+sudo systemctl disable geoinfer-api 2>/dev/null || true
+
+# Kill any processes using port 80
+echo "[remote:docker] Killing processes on port 80 ..."
+sudo fuser -k 80/tcp 2>/dev/null || true
+
+# Wait and verify port is free
+sleep 3
+echo "[remote:docker] Checking if port 80 is now free ..."
+if lsof -i :80 >/dev/null 2>&1; then
+  echo "[remote:docker] WARNING: Port 80 still in use after cleanup:"
+  lsof -i :80 || true
+  echo "[remote:docker] Attempting more aggressive cleanup ..."
   
-  # Stop nginx if it's running (common case)
-  if systemctl is-active --quiet nginx 2>/dev/null; then
-    echo "[remote:docker] Stopping nginx to free port 80 ..."
-    sudo systemctl stop nginx || true
-  fi
-  
-  # Stop old geoinfer-api service if running
-  if systemctl is-active --quiet geoinfer-api 2>/dev/null; then
-    echo "[remote:docker] Stopping old geoinfer-api systemd service ..."
-    sudo systemctl stop geoinfer-api || true
-    sudo systemctl disable geoinfer-api || true
-  fi
-  
-  # Kill any other processes using port 80
-  echo "[remote:docker] Attempting to free port 80 ..."
-  sudo fuser -k 80/tcp 2>/dev/null || true
+  # More aggressive kill
+  sudo pkill -f nginx || true
+  sudo pkill -f uvicorn || true
+  sudo fuser -k -9 80/tcp 2>/dev/null || true
   sleep 2
+  
+  # Final check
+  if lsof -i :80 >/dev/null 2>&1; then
+    echo "[remote:docker] ERROR: Unable to free port 80. Manual intervention required." >&2
+    lsof -i :80 || true
+    exit 1
+  fi
 fi
+
+echo "[remote:docker] ✓ Port 80 is now free"
 
 echo "[remote:docker] Building production Docker image ..."
 docker build -t "$IMAGE_NAME" --build-arg INSTALL_DEV=false .
