@@ -32,14 +32,14 @@ uv python install 3.12 >/dev/null 2>&1 || true
 
 echo "[remote:nodocker] Syncing dependencies ..."
 cd "$WORKDIR"
-uv sync --locked --no-dev --no-cache
+uv sync --locked --no-dev --no-cache --extra-index-url https://download.pytorch.org/whl/cpu
 
 echo "[remote:nodocker] Running Alembic migrations ..."
-uv run alembic -c src/database/alembic.ini upgrade head
+PYTHONPATH=. uv run alembic -c src/database/alembic.ini upgrade head
 
 echo "[remote:nodocker] Verifying Alembic migration state ..."
-REV_OUTPUT=$(uv run alembic -c src/database/alembic.ini current || true)
-HEAD_OUTPUT=$(uv run alembic -c src/database/alembic.ini heads || true)
+REV_OUTPUT=$(PYTHONPATH=. uv run alembic -c src/database/alembic.ini current || true)
+HEAD_OUTPUT=$(PYTHONPATH=. uv run alembic -c src/database/alembic.ini heads || true)
 if [ -z "$REV_OUTPUT" ] || [ -z "$HEAD_OUTPUT" ]; then
   echo "[remote:nodocker] Unable to determine Alembic revisions (current/heads)." >&2
   exit 1

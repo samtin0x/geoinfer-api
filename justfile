@@ -6,7 +6,7 @@ default:
 
 # Install dependencies including dev dependencies
 install:
-    uv sync --extra dev
+    uv sync --extra dev --extra-index-url https://download.pytorch.org/whl/cpu
 
 # Setup pre-commit hooks
 setup-pre-commit:
@@ -35,23 +35,23 @@ clean:
 # Database migration commands
 db-upgrade:
     @echo "Running database migrations..."
-    uv run alembic -c src/database/alembic.ini upgrade head
+    PYTHONPATH=. uv run alembic -c src/database/alembic.ini upgrade head
 
 db-downgrade REVISION="base":
     @echo "Downgrading database to {{ REVISION }}..."
-    uv run alembic -c src/database/alembic.ini downgrade {{ REVISION }}
+    PYTHONPATH=. uv run alembic -c src/database/alembic.ini downgrade {{ REVISION }}
 
 db-migration MESSAGE:
     @echo "Creating new migration: {{ MESSAGE }}"
-    uv run alembic -c src/database/alembic.ini revision --autogenerate -m "{{ MESSAGE }}"
+    PYTHONPATH=. uv run alembic -c src/database/alembic.ini revision --autogenerate -m "{{ MESSAGE }}"
 
 db-history:
     @echo "Migration history:"
-    uv run alembic -c src/database/alembic.ini history --verbose
+    PYTHONPATH=. uv run alembic -c src/database/alembic.ini history --verbose
 
 db-current:
     @echo "Current database revision:"
-    uv run alembic -c src/database/alembic.ini current
+    PYTHONPATH=. uv run alembic -c src/database/alembic.ini current
 
 # Run tests with pytest (optional path parameter)
 test PATH="tests/":

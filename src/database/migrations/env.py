@@ -4,9 +4,10 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from src.database.models import Base
+from src.utils.settings.database import DatabaseSettings
 
 # Import all models so they are registered with Base.metadata
-from src.utils.settings.database import DatabaseSettings
+# Models are imported via the __init__.py file
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -29,7 +30,7 @@ target_metadata = Base.metadata
 
 def get_url():
     """Get database URL from environment."""
-    return DatabaseSettings().DATABASE_URL
+    return DatabaseSettings().DATABASE_URL.get_secret_value()
 
 
 def run_migrations_offline() -> None:
