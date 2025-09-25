@@ -58,13 +58,37 @@ fi
 
 echo "[remote:docker] ✓ Required files found"
 
-echo "[remote:docker] Stopping existing container if running ..."
+echo "[remote:docker] Checking for existing containers and port conflicts ..."
 if docker ps -a --format "table {{.Names}}" | grep -q "^${CONTAINER_NAME}$"; then
   echo "[remote:docker] Stopping and removing existing container ..."
   docker stop "$CONTAINER_NAME" || true
   docker rm "$CONTAINER_NAME" || true
 else
   echo "[remote:docker] No existing container found"
+fi
+
+echo "[remote:docker] Checking for services using port 80 ..."
+if netstat -tlnp 2>/dev/null | grep -q ":80 "; then
+  echo "[remote:docker] Port 80 is in use. Checking what's using it:"
+  netstat -tlnp 2>/dev/null | grep ":80 " || true
+  
+  # Stop nginx if it's running (common case)
+  if systemctl is-active --quiet nginx 2>/dev/null; then
+    echo "[remote:docker] Stopping nginx to free port 80 ..."
+    sudo systemctl stop nginx || true
+  fi
+  
+  # Stop old geoinfer-api service if running
+  if systemctl is-active --quiet geoinfer-api 2>/dev/null; then
+    echo "[remote:docker] Stopping old geoinfer-api systemd service ..."
+    sudo systemctl stop geoinfer-api || true
+    sudo systemctl disable geoinfer-api || true
+  fi
+  
+  # Kill any other processes using port 80
+  echo "[remote:docker] Attempting to free port 80 ..."
+  sudo fuser -k 80/tcp 2>/dev/null || true
+  sleep 2
 fi
 
 echo "[remote:docker] Building production Docker image ..."
