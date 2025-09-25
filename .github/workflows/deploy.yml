@@ -84,18 +84,18 @@ jobs:
 
             # Create production environment file
             tmpfile=$(mktemp)
-            cat > "$tmpfile" << EOF
-ENVIRONMENT=PROD
-API_VERSION=${{ steps.tag.outputs.tag }}
-DATABASE_URL=$DATABASE_URL
-REDIS_URL=$REDIS_URL
-SUPABASE_URL=$SUPABASE_URL
-SUPABASE_KEY=$SUPABASE_KEY
-SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET
-RESEND_API_KEY=$RESEND_API_KEY
-STRIPE_SECRET_KEY=$STRIPE_SECRET_KEY
-STRIPE_WEBHOOK_SECRET=$STRIPE_WEBHOOK_SECRET
-EOF
+            {
+              echo "ENVIRONMENT=PROD"
+              echo "API_VERSION=${{ steps.tag.outputs.tag }}"
+              echo "DATABASE_URL=$DATABASE_URL"
+              echo "REDIS_URL=$REDIS_URL"
+              echo "SUPABASE_URL=$SUPABASE_URL"
+              echo "SUPABASE_KEY=$SUPABASE_KEY"
+              echo "SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET"
+              echo "RESEND_API_KEY=$RESEND_API_KEY"
+              echo "STRIPE_SECRET_KEY=$STRIPE_SECRET_KEY"
+              echo "STRIPE_WEBHOOK_SECRET=$STRIPE_WEBHOOK_SECRET"
+            } > "$tmpfile"
 
             sudo install -m 600 -o root -g root "$tmpfile" /etc/geoinfer/.env
             rm -f "$tmpfile"
