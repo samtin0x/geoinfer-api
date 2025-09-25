@@ -18,7 +18,7 @@ env:
 
 jobs:
   deploy:
-    name: Build, Transfer, and Rollout
+    name: Transfer and Rollout
     runs-on: ubuntu-latest
 
     steps:
@@ -34,26 +34,6 @@ jobs:
             echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker image (load locally)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: ./Dockerfile
-          push: false
-          load: true
-          tags: |
-            ${{ env.IMAGE_REPO }}:${{ steps.tag.outputs.tag }}
-            ${{ env.IMAGE_REPO }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-      - name: Save image to tarball
-        run: |
-          docker save ${{ env.IMAGE_REPO }}:${{ steps.tag.outputs.tag }} | gzip > geoinfer-api.tar.gz
-
       - name: Copy deploy templates to droplet
         uses: appleboy/scp-action@v0.1.7
         with:
@@ -61,21 +41,21 @@ jobs:
           username: ${{ secrets.DROPLET_USER }}
           password: ${{ secrets.DROPLET_PASSWORD }}
           source: "deploy/*"
-          target: "/opt/geoinfer"
+          target: "/root"
 
-      - name: Copy image tarball to droplet
+      - name: Copy application source to droplet
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           password: ${{ secrets.DROPLET_PASSWORD }}
-          source: "geoinfer-api.tar.gz"
-          target: "/opt/geoinfer"
+          source: "./"
+          target: "/root/app"
+          rm: true
 
-      - name: Roll out on droplet via SSH
+      - name: Roll out on droplet via SSH (Non-Docker)
         uses: appleboy/ssh-action@v1.0.3
         env:
-          IMAGE: ${{ env.IMAGE_REPO }}:${{ steps.tag.outputs.tag }}
           # Full multi-line env file content
           PROD_ENV: ${{ secrets.PROD_ENV }}
         with:
@@ -83,10 +63,10 @@ jobs:
           username: ${{ secrets.DROPLET_USER }}
           password: ${{ secrets.DROPLET_PASSWORD }}
           script_stop: true
-          envs: IMAGE,PROD_ENV
+          envs: PROD_ENV
           script: |
             set -euo pipefail
-            WORKDIR="/opt/geoinfer"
+            WORKDIR="/root"
             sudo mkdir -p "$WORKDIR"
             sudo mkdir -p /etc/geoinfer
             if [ -f /etc/geoinfer/.env ]; then
@@ -103,8 +83,5 @@ jobs:
             echo "API_VERSION=${{ steps.tag.outputs.tag }}" | sudo tee -a /etc/geoinfer/.env >/dev/null
             sudo chmod 600 /etc/geoinfer/.env
 
-            echo "Loading transferred image on host ..."
-            docker load -i "$WORKDIR/geoinfer-api.tar.gz"
-
-            echo "Executing remote rollout ..."
-            bash "$WORKDIR/remote_rollout.sh"
+            echo "Executing remote non-Docker rollout ..."
+            bash "$WORKDIR/remote_rollout_nodocker.sh"
