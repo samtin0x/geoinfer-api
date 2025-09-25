@@ -32,7 +32,14 @@ uv python install 3.12 >/dev/null 2>&1 || true
 
 echo "[remote:nodocker] Syncing dependencies ..."
 cd "$WORKDIR"
-uv sync --locked --no-dev --no-cache --extra-index-url https://download.pytorch.org/whl/cpu
+
+# Set temporary directory to use /root/tmp instead of /tmp to avoid disk space issues
+export TMPDIR="/root/tmp"
+mkdir -p "$TMPDIR"
+echo "[remote:nodocker] Using temporary directory: $TMPDIR"
+
+echo "[remote:nodocker] Installing remaining dependencies..."
+uv sync --no-dev --no-cache
 
 echo "[remote:nodocker] Running Alembic migrations ..."
 PYTHONPATH=. uv run alembic -c src/database/alembic.ini upgrade head
