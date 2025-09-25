@@ -162,22 +162,55 @@ docker run -d \
   -v "$WORKDIR/logs":/app/logs \
   "$IMAGE_NAME"
 
+echo "[remote:docker] Waiting for API container to be healthy ..."
+# Wait for the API container to start and be healthy
+for i in $(seq 1 30); do
+  if docker exec "$CONTAINER_NAME" curl -fsS http://localhost:8010/health/ >/dev/null 2>&1; then
+    echo "[remote:docker] API container is healthy."
+    break
+  fi
+  echo "[remote:docker] [$i/30] API container not ready yet; waiting ..."
+  sleep 2
+  if [ $i -eq 30 ]; then
+    echo "[remote:docker] API container failed to start properly." >&2
+    echo "[remote:docker] Container logs:" >&2
+    docker logs "$CONTAINER_NAME" --tail 20 || true
+    exit 1
+  fi
+done
+
 echo "[remote:docker] Starting Caddy reverse proxy with HTTPS ..."
 # Stop existing caddy if running
 docker stop caddy-proxy 2>/dev/null || true
 docker rm caddy-proxy 2>/dev/null || true
 
-# Start Caddy with inline config for HTTPS termination
+# Create Caddy config for IP-based HTTPS with self-signed cert
+cat > /tmp/Caddyfile << 'EOF'
+{
+    auto_https off
+}
+
+:80 {
+    reverse_proxy geoinfer-api-prod:8010
+}
+
+:443 {
+    tls internal
+    reverse_proxy geoinfer-api-prod:8010
+}
+EOF
+
+# Start Caddy with config file for HTTP and HTTPS
 docker run -d \
   --name caddy-proxy \
   --restart unless-stopped \
   --network geoinfer-net \
   -p 80:80 \
   -p 443:443 \
+  -v /tmp/Caddyfile:/etc/caddy/Caddyfile \
   -v caddy_data:/data \
   -v caddy_config:/config \
-  caddy:alpine \
-  caddy reverse-proxy --from :80 --to geoinfer-api-prod:8010
+  caddy:alpine
 
 echo "[remote:docker] Waiting for API health on container port 8010 (external port 80) ..."
 for i in $(seq 1 60); do
