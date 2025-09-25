@@ -16,6 +16,12 @@ echo "[remote:nodocker] Ensuring directories ..."
 sudo mkdir -p "$WORKDIR"
 sudo chown -R "$(whoami)":"$(whoami)" "$WORKDIR"
 
+echo "[remote:nodocker] Installing nginx if missing ..."
+if ! command -v nginx >/dev/null 2>&1; then
+  sudo apt-get update
+  sudo apt-get install -y nginx
+fi
+
 echo "[remote:nodocker] Marking rollout as pending ..."
 date -Is > "$ROLL_MARKER"
 
@@ -61,6 +67,14 @@ if [ -z "$CURRENT_ID" ] || [ -z "$HEAD_ID" ] || [ "$CURRENT_ID" != "$HEAD_ID" ];
   echo "[remote:nodocker] Migrations are not at head. Aborting restart." >&2
   exit 1
 fi
+
+echo "[remote:nodocker] Configuring nginx reverse proxy ..."
+sudo cp /root/deploy/nginx.conf /etc/nginx/sites-available/geoinfer
+sudo ln -sf /etc/nginx/sites-available/geoinfer /etc/nginx/sites-enabled/geoinfer
+sudo rm -f /etc/nginx/sites-enabled/default  # Remove default nginx site
+sudo nginx -t  # Test nginx configuration
+sudo systemctl enable nginx
+sudo systemctl restart nginx
 
 echo "[remote:nodocker] Writing/refreshing systemd unit ..."
 UNIT_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
@@ -112,19 +126,35 @@ sudo systemctl daemon-reload
 sudo systemctl enable ${SERVICE_NAME} >/dev/null 2>&1 || true
 sudo systemctl restart ${SERVICE_NAME}
 
-echo "[remote:nodocker] Waiting for health on :8010 ..."
+echo "[remote:nodocker] Waiting for API health on :8010 ..."
 for i in $(seq 1 60); do
   if curl -fsS http://localhost:8010/health >/dev/null 2>&1; then
-    echo "[remote:nodocker] Service is healthy."
+    echo "[remote:nodocker] API service is healthy on port 8010."
+    break
+  fi
+  echo "[remote:nodocker] [$i/60] API not healthy yet; retrying ..."
+  sleep 2
+  if [ $i -eq 60 ]; then
+    echo "[remote:nodocker] API health check failed after restart." >&2
+    sudo journalctl -u ${SERVICE_NAME} --no-pager -n 200 || true
+    exit 1
+  fi
+done
+
+echo "[remote:nodocker] Waiting for nginx proxy on :80 ..."
+for i in $(seq 1 30); do
+  if curl -fsS http://localhost/health >/dev/null 2>&1; then
+    echo "[remote:nodocker] Nginx proxy is working. Service is fully healthy."
     rm -f "$ROLL_MARKER" || true
     exit 0
   fi
-  echo "[remote:nodocker] [$i/60] Not healthy yet; retrying ..."
+  echo "[remote:nodocker] [$i/30] Nginx proxy not ready yet; retrying ..."
   sleep 2
 done
 
-echo "[remote:nodocker] Health check failed after restart." >&2
-sudo journalctl -u ${SERVICE_NAME} --no-pager -n 200 || true
+echo "[remote:nodocker] Nginx proxy health check failed." >&2
+sudo nginx -t || true
+sudo systemctl status nginx || true
 exit 1
 
 
