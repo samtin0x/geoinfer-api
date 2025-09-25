@@ -71,10 +71,11 @@ echo "[remote:docker] Building production Docker image ..."
 docker build -t "$IMAGE_NAME" --build-arg INSTALL_DEV=false .
 
 echo "[remote:docker] Running database migrations in temporary container ..."
-# Run migrations using a temporary container without volume mount to avoid permission issues
+# Run migrations using a temporary container with proper PYTHONPATH
 docker run --rm \
   --env-file /etc/geoinfer/.env \
   --network host \
+  -e PYTHONPATH=/app \
   "$IMAGE_NAME" \
   uv run alembic -c src/database/alembic.ini upgrade head
 
@@ -82,12 +83,14 @@ echo "[remote:docker] Verifying Alembic migration state ..."
 REV_OUTPUT=$(docker run --rm \
   --env-file /etc/geoinfer/.env \
   --network host \
+  -e PYTHONPATH=/app \
   "$IMAGE_NAME" \
   uv run alembic -c src/database/alembic.ini current || true)
 
 HEAD_OUTPUT=$(docker run --rm \
   --env-file /etc/geoinfer/.env \
   --network host \
+  -e PYTHONPATH=/app \
   "$IMAGE_NAME" \
   uv run alembic -c src/database/alembic.ini heads || true)
 
