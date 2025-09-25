@@ -63,16 +63,13 @@ dev:
     PYTHONPATH=. uv run python -c "from src.main import run_dev_server; run_dev_server()"
 
 prod:
-    @echo "Starting GeoInfer API production server..."
-    PYTHONPATH=. uv run python -c "from src.main import run_prod_server; run_prod_server()"
+    @echo "Building and running production Docker container (port 80 -> 8010)..."
+    docker build -t geoinfer-api:latest --build-arg INSTALL_DEV=false .
+    docker run -d --restart unless-stopped -p 80:8010 --env-file .env --name geoinfer-api-prod geoinfer-api:latest
 
-# Docker development commands
-docker-build:
-    @echo "Building Docker development image..."
-    docker-compose build
-
+# Docker development commands (for local infrastructure)
 docker-up:
-    @echo "Starting Docker development environment..."
+    @echo "Starting Docker development environment (infrastructure only)..."
     docker-compose up -d
 
 docker-down:

@@ -26,13 +26,14 @@ WORKDIR /app
 RUN groupadd --gid 1000 app && \
     useradd --uid 1000 --gid app --shell /bin/bash --create-home app
 
-RUN chown -R app:app /app
+# Create logs directory
+RUN mkdir -p /app/logs && chown -R app:app /app
 USER app
 
 # Copy dependency files first for better Docker layer caching
 COPY --chown=app:app pyproject.toml uv.lock* ./
 
-# Install dependencies (can be overridden with --build-arg)
+# Install dependencies (production only by default)
 ARG INSTALL_DEV=false
 RUN if [ "$INSTALL_DEV" = "true" ]; then \
         uv sync --locked; \
@@ -49,5 +50,5 @@ COPY --chown=app:app . .
 # Expose the application port
 EXPOSE 8010
 
-# Default production command (can be overridden)
-CMD ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8010"]
+# Production command with better performance settings
+CMD ["uv", "run", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8010", "--workers", "1", "--loop", "uvloop", "--http", "httptools"]
