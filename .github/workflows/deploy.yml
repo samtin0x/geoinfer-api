@@ -20,6 +20,7 @@ jobs:
   deploy:
     name: Transfer and Rollout
     runs-on: ubuntu-latest
+    environment: PROD_ENV
 
     steps:
       - name: Checkout code
@@ -56,32 +57,48 @@ jobs:
       - name: Roll out on droplet via SSH (Non-Docker)
         uses: appleboy/ssh-action@v1.0.3
         env:
-          # Full multi-line env file content
-          PROD_ENV: ${{ secrets.PROD_ENV }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          REDIS_URL: ${{ secrets.REDIS_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          SUPABASE_JWT_SECRET: ${{ secrets.SUPABASE_JWT_SECRET }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           password: ${{ secrets.DROPLET_PASSWORD }}
           script_stop: true
-          envs: PROD_ENV
+          envs: DATABASE_URL,REDIS_URL,SUPABASE_URL,SUPABASE_KEY,SUPABASE_JWT_SECRET,RESEND_API_KEY,STRIPE_SECRET_KEY,STRIPE_WEBHOOK_SECRET
           script: |
             set -euo pipefail
             WORKDIR="/root"
             sudo mkdir -p "$WORKDIR"
             sudo mkdir -p /etc/geoinfer
+
+            # Backup existing env file
             if [ -f /etc/geoinfer/.env ]; then
               sudo cp /etc/geoinfer/.env "/etc/geoinfer/.env.bak.$(date +%s)" || true
             fi
-            # Write multi-line secret to .env atomically
+
+            # Create production environment file
             tmpfile=$(mktemp)
-            printf "%s" "$PROD_ENV" > "$tmpfile"
+            cat > "$tmpfile" << EOF
+ENVIRONMENT=PROD
+API_VERSION=${{ steps.tag.outputs.tag }}
+DATABASE_URL=$DATABASE_URL
+REDIS_URL=$REDIS_URL
+SUPABASE_URL=$SUPABASE_URL
+SUPABASE_KEY=$SUPABASE_KEY
+SUPABASE_JWT_SECRET=$SUPABASE_JWT_SECRET
+RESEND_API_KEY=$RESEND_API_KEY
+STRIPE_SECRET_KEY=$STRIPE_SECRET_KEY
+STRIPE_WEBHOOK_SECRET=$STRIPE_WEBHOOK_SECRET
+EOF
+
             sudo install -m 600 -o root -g root "$tmpfile" /etc/geoinfer/.env
             rm -f "$tmpfile"
-            sudo chmod 600 /etc/geoinfer/.env
-
-            # Ensure API_VERSION from tag is present
-            echo "API_VERSION=${{ steps.tag.outputs.tag }}" | sudo tee -a /etc/geoinfer/.env >/dev/null
-            sudo chmod 600 /etc/geoinfer/.env
 
             echo "Debugging: Listing files in WORKDIR ..."
             ls -la "$WORKDIR" || true
