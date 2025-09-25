@@ -83,5 +83,9 @@ jobs:
             echo "API_VERSION=${{ steps.tag.outputs.tag }}" | sudo tee -a /etc/geoinfer/.env >/dev/null
             sudo chmod 600 /etc/geoinfer/.env
 
+            echo "Debugging: Listing files in WORKDIR ..."
+            ls -la "$WORKDIR" || true
+            ls -la "$WORKDIR/deploy" || true
+            
             echo "Executing remote non-Docker rollout ..."
             bash "$WORKDIR/deploy/remote_rollout_nodocker.sh"
