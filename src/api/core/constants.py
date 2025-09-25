@@ -1,4 +1,3 @@
-API_VERSION = "0.0.1"
 API_VERSION_HEADER = "X-GeoInfer-Version"
 
 # API Key Configuration

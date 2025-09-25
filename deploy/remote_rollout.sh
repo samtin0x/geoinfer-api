@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Expects /etc/geoinfer/.env to exist, and IMAGE/DOCR_* envs exported by the caller.
+# Expects /etc/geoinfer/.env to exist, and IMAGE env exported by the caller.
 
-echo "[remote] Pulling image: $IMAGE"
-docker pull "$IMAGE"
+echo "[remote] Using preloaded image: $IMAGE"
 
 echo "[remote] Capturing current container image for rollback ..."
 OLD_IMAGE_ID=$(docker inspect --format='{{.Image}}' geoinfer-api 2>/dev/null || true)

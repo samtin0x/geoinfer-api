@@ -4,7 +4,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from src.utils.settings.app import AppSettings
 from src.api.core.exceptions.base import GeoInferException
 from src.api.core.messages import MessageCode
-from src.api.core.constants import API_VERSION, API_VERSION_HEADER
+from src.api.core.constants import API_VERSION_HEADER
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -41,7 +41,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Add custom security headers
         headers.update(
             {
-                API_VERSION_HEADER: API_VERSION,
+                API_VERSION_HEADER: self.app_settings.API_VERSION,
                 "X-Permitted-Cross-Domain-Policies": "none",
             }
         )

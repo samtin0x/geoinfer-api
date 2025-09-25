@@ -6,6 +6,7 @@ class AppSettings(BaseSettings):
 
     DEBUG: bool = False
     ENVIRONMENT: str = "DEV"
+    API_VERSION: str = "0.0.1"
     CORS_ORIGINS: list[str] = [
         "http://localhost:3000",
         "http://localhost:3002",

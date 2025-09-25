@@ -13,7 +13,6 @@ from src.api.core.middleware.security import (
     HTTPSRedirectMiddleware,
     PayloadSizeMiddleware,
 )
-from src.api.core.constants import API_VERSION
 from src.api.router import api_router
 from src.database.connection import AsyncSessionLocal
 from src.modules.prediction.infrastructure.inference import load_geoclip_model
@@ -50,7 +49,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="GeoInfer API",
     description="GPS coordinate prediction from images using AI",
-    version=API_VERSION,
+    version=AppSettings().API_VERSION,
     lifespan=lifespan,
     # Security: Disable docs in production
     docs_url=None if is_production else "/docs",
