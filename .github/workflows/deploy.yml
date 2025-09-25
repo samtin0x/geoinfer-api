@@ -34,13 +34,13 @@ jobs:
             echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
 
-      - name: Copy deploy templates to droplet
+      - name: Copy deploy directory to droplet
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           password: ${{ secrets.DROPLET_PASSWORD }}
-          source: "deploy/*"
+          source: "deploy"
           target: "/root"
 
       - name: Copy application source to droplet
