@@ -149,15 +149,35 @@ if [ -z "$CURRENT_ID" ] || [ -z "$HEAD_ID" ] || [ "$CURRENT_ID" != "$HEAD_ID" ];
   exit 1
 fi
 
+echo "[remote:docker] Creating Docker network if not exists ..."
+docker network create geoinfer-net 2>/dev/null || true
+
 echo "[remote:docker] Starting production container ..."
 # Start the container in detached mode with restart policy
 docker run -d \
   --name "$CONTAINER_NAME" \
   --restart unless-stopped \
-  -p 80:8010 \
+  --network geoinfer-net \
   --env-file /etc/geoinfer/.env \
   -v "$WORKDIR/logs":/app/logs \
   "$IMAGE_NAME"
+
+echo "[remote:docker] Starting Caddy reverse proxy with HTTPS ..."
+# Stop existing caddy if running
+docker stop caddy-proxy 2>/dev/null || true
+docker rm caddy-proxy 2>/dev/null || true
+
+# Start Caddy with inline config for HTTPS termination
+docker run -d \
+  --name caddy-proxy \
+  --restart unless-stopped \
+  --network geoinfer-net \
+  -p 80:80 \
+  -p 443:443 \
+  -v caddy_data:/data \
+  -v caddy_config:/config \
+  caddy:alpine \
+  caddy reverse-proxy --from :80 --to geoinfer-api-prod:8010
 
 echo "[remote:docker] Waiting for API health on container port 8010 (external port 80) ..."
 for i in $(seq 1 60); do
