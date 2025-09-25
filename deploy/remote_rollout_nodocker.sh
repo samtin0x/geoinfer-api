@@ -39,6 +39,20 @@ uv python install 3.12 >/dev/null 2>&1 || true
 echo "[remote:nodocker] Syncing dependencies ..."
 cd "$WORKDIR"
 
+echo "[remote:nodocker] Verifying project files are present ..."
+echo "[remote:nodocker] Contents of $WORKDIR:"
+ls -la .
+
+if [ ! -f pyproject.toml ]; then
+  echo "[remote:nodocker] ERROR: pyproject.toml not found in $WORKDIR" >&2
+  echo "[remote:nodocker] Full directory listing:" >&2
+  find . -type f -name "*.toml" >&2 || true
+  find . -type f -name "pyproject*" >&2 || true
+  exit 1
+fi
+
+echo "[remote:nodocker] ✓ pyproject.toml found"
+
 # Set temporary directory to use /root/tmp instead of /tmp to avoid disk space issues
 export TMPDIR="/root/tmp"
 mkdir -p "$TMPDIR"
