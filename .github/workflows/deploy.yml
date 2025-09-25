@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to deploy (e.g., v1.2.3)'
+        description: 'Tag name'
         required: true
         type: string
 
@@ -61,7 +61,7 @@ jobs:
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
+          password: ${{ secrets.DROPLET_PASSWORD }}
           source: "deploy/*"
           target: "/opt/geoinfer"
 
@@ -77,7 +77,7 @@ jobs:
         with:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
-          key: ${{ secrets.DROPLET_SSH_KEY }}
+          password: ${{ secrets.DROPLET_PASSWORD }}
           script_stop: true
           envs: IMAGE,DOCR_REGISTRY,DOCR_USERNAME,DOCR_TOKEN,PROD_ENV
           script: |
