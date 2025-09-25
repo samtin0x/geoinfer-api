@@ -1,4 +1,3 @@
-# Production Dockerfile for GeoInfer API
 FROM python:3.12-slim
 
 # Set environment variables
@@ -27,6 +26,9 @@ WORKDIR /app
 RUN groupadd --gid 1000 app && \
     useradd --uid 1000 --gid app --shell /bin/bash --create-home app
 
+RUN chown -R app:app /app
+USER app
+
 # Copy dependency files first for better Docker layer caching
 COPY --chown=app:app pyproject.toml uv.lock* ./
 
@@ -40,9 +42,6 @@ RUN if [ "$INSTALL_DEV" = "true" ]; then \
 
 # Copy application source code
 COPY --chown=app:app . .
-
-# Switch to non-root user
-USER app
 
 # Expose the application port
 EXPOSE 8010
