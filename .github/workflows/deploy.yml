@@ -84,4 +84,4 @@ jobs:
             sudo chmod 600 /etc/geoinfer/.env
 
             echo "Executing remote non-Docker rollout ..."
-            bash "$WORKDIR/remote_rollout_nodocker.sh"
+            bash "$WORKDIR/deploy/remote_rollout_nodocker.sh"
