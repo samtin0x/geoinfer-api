@@ -57,6 +57,21 @@ docker-compose*.yml
 Dockerfile.dev
 justfile
 
+# Exclude cache and build artifacts
+**/__pycache__/
+**/*.pyc
+**/*.pyo
+**/*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+**/*.egg-info/
+
+# CI/CD files (not needed in container)
+.github/
+deploy/
+AGENTS.md
+
 # Documentation
 docs/
 *.md
@@ -65,7 +80,9 @@ docs/
 # Tests
 tests/
 *_test.py
-test_*
+test_*.py
+**/*_test.py
+**/test_*.py
 
 # Build artifacts
 build/

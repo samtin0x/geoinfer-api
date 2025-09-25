@@ -38,7 +38,10 @@ RUN if [ "$INSTALL_DEV" = "true" ]; then \
         uv sync --locked; \
     else \
         uv sync --locked --no-dev --no-cache; \
-    fi
+    fi && \
+    # Clean up any cache directories to reduce image size
+    find /home/app/.cache -type f -delete 2>/dev/null || true && \
+    uv cache clean
 
 # Copy application source code
 COPY --chown=app:app . .
