@@ -131,27 +131,3 @@ class PayloadSizeMiddleware(BaseHTTPMiddleware):
 
         response = await call_next(request)
         return response
-
-
-class HTTPSRedirectMiddleware(BaseHTTPMiddleware):
-    """Redirect HTTP to HTTPS in production."""
-
-    def __init__(self, app, is_production: bool = False):
-        super().__init__(app)
-        self.is_production = is_production
-
-    async def dispatch(self, request: Request, call_next) -> Response:
-        if (
-            self.is_production
-            and request.url.scheme == "http"
-            and not request.url.path.startswith(
-                "/health"
-            )  # Allow health checks over HTTP
-        ):
-            https_url = request.url.replace(scheme="https")
-            return Response(
-                status_code=301,
-                headers={"Location": str(https_url)},
-            )
-
-        return await call_next(request)

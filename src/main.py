@@ -9,7 +9,6 @@ from src.api.core.middleware.auth import auth_middleware
 from src.api.core.middleware.logging import logging_middleware
 from src.api.core.middleware.security import (
     SecurityHeadersMiddleware,
-    HTTPSRedirectMiddleware,
     PayloadSizeMiddleware,
 )
 from src.api.router import api_router
@@ -71,8 +70,6 @@ app.add_middleware(
     expose_headers=["*"],
 )
 
-# Add other middleware in order
-app.add_middleware(HTTPSRedirectMiddleware, is_production=is_production)
 app.add_middleware(SecurityHeadersMiddleware, is_production=is_production)
 app.add_middleware(
     PayloadSizeMiddleware,
