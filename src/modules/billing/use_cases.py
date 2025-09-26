@@ -93,8 +93,8 @@ class StripePaymentService(BaseService):
                 StripeSettings().STRIPE_WEBHOOK_SECRET,
             )
             return event
-        except Exception as e:
-            raise ValueError(str(e))
+        except Exception:
+            raise ValueError("Invalid webhook data")
 
     async def handle_subscription_webhook(self, event: dict) -> bool:
         event_type = event["type"]

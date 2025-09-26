@@ -52,7 +52,7 @@ async def stripe_webhook(
         raise GeoInferException(
             MessageCode.BAD_REQUEST,
             status.HTTP_400_BAD_REQUEST,
-            details={"description": str(e)},
+            details={"description": "Invalid webhook data"},
         )
     except Exception as e:
         logger.error(f"Webhook processing error: {e}")

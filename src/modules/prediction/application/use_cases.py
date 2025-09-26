@@ -341,7 +341,7 @@ async def predict_coordinates_from_upload(
         raise GeoInferException(
             MessageCode.PREDICTION_FAILED,
             status.HTTP_500_INTERNAL_SERVER_ERROR,
-            details={"description": f"Prediction failed: {str(e)}"},
+            details={"description": "Prediction failed due to an internal error"},
         )
 
 

@@ -40,7 +40,7 @@ async def handle_jwt_auth(
         raise GeoInferException(
             MessageCode.INVALID_TOKEN,
             status.HTTP_403_FORBIDDEN,
-            {"description": f"Token validation failed: {str(e)}"},
+            {"description": "Invalid or expired authentication token"},
         )
 
     if payload.get("role") == "anon":
