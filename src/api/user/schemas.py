@@ -1,8 +1,6 @@
-"""User API schemas (combined models/requests)."""
-
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 from src.api.core.messages import APIResponse
 
 
@@ -20,7 +18,7 @@ class UserOrganizationModel(BaseModel):
 class UserModel(BaseModel):
     id: UUID
     name: str
-    email: EmailStr
+    email: str
     plan_tier: str | None = None
     organization_id: UUID | None = None
     organization_name: str | None = None

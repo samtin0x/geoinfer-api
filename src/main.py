@@ -9,7 +9,6 @@ from src.api.core.middleware.auth import auth_middleware
 from src.api.core.middleware.logging import logging_middleware
 from src.api.core.middleware.security import (
     SecurityHeadersMiddleware,
-    TrustedHostsMiddleware,
     HTTPSRedirectMiddleware,
     PayloadSizeMiddleware,
 )
@@ -61,8 +60,19 @@ app = FastAPI(
 register_exception_handlers(app)
 
 
+# Configure CORS middleware with explicit settings
+app_settings = AppSettings()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=app_settings.CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+)
+
+# Add other middleware in order
 app.add_middleware(HTTPSRedirectMiddleware, is_production=is_production)
-app.add_middleware(TrustedHostsMiddleware)
 app.add_middleware(SecurityHeadersMiddleware, is_production=is_production)
 app.add_middleware(
     PayloadSizeMiddleware,
@@ -71,14 +81,6 @@ app.add_middleware(
 )
 app.middleware("http")(auth_middleware)
 app.middleware("http")(logging_middleware)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=AppSettings().CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
 app.include_router(api_router)
 

@@ -18,17 +18,17 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next) -> Response:
         response = await call_next(request)
 
-        # Security headers
+        # Security headers (avoid CORS-related headers that conflict with CORSMiddleware)
         headers = {
             "X-Content-Type-Options": "nosniff",
             "X-Frame-Options": "DENY",
             "X-XSS-Protection": "1; mode=block",
             "Referrer-Policy": "strict-origin-when-cross-origin",
-            "Cross-Origin-Embedder-Policy": "require-corp",
-            "Cross-Origin-Opener-Policy": "same-origin",
-            "Cross-Origin-Resource-Policy": "cross-origin",
             "Permissions-Policy": "geolocation=(), microphone=(), camera=(), payment=()",
         }
+
+        # Skip CORP/COEP/COOP headers to avoid CORS conflicts in production
+        # These can interfere with cross-origin requests from the frontend
 
         # Add CSP in production
         if self.is_production:
@@ -46,9 +46,19 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             }
         )
 
-        # Apply headers to response
+        # Apply headers to response, but don't override CORS headers
+        cors_headers = {
+            "Access-Control-Allow-Origin",
+            "Access-Control-Allow-Methods",
+            "Access-Control-Allow-Headers",
+            "Access-Control-Allow-Credentials",
+            "Access-Control-Expose-Headers",
+            "Access-Control-Max-Age",
+        }
+
         for key, value in headers.items():
-            if key not in response.headers:
+            # Don't override CORS headers that may have been set by CORSMiddleware
+            if key not in response.headers and key not in cors_headers:
                 response.headers[key] = value
 
         return response
@@ -65,6 +75,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "'self'",
                 "https://api.stripe.com",
                 "https://js.stripe.com",
+                "https://app.geoinfer.com",
+                "https://geoinfer.com",
             ],
             "frame-src": ["https://js.stripe.com", "https://hooks.stripe.com"],
             "object-src": ["'none'"],
@@ -78,33 +90,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             csp_parts.append(f"{directive} {' '.join(sources)}")
 
         return "; ".join(csp_parts)
-
-
-class TrustedHostsMiddleware(BaseHTTPMiddleware):
-    """Validate trusted hosts and proxy headers."""
-
-    def __init__(self, app, allowed_hosts: list | None = None):
-        super().__init__(app)
-        self.allowed_hosts = allowed_hosts or [
-            "geoinfer.com",
-            "app.geoinfer.com",
-            "localhost",
-            "127.0.0.1",
-        ]
-
-    async def dispatch(self, request: Request, call_next) -> Response:
-        # Validate Host header
-        host = request.headers.get("host", "").split(":")[0]  # Remove port
-        if host and host not in self.allowed_hosts and not host.startswith("localhost"):
-            # Log suspicious host header
-            from src.utils.logger import get_logger
-
-            logger = get_logger(__name__)
-            logger.warning(
-                f"Suspicious Host header: {host} from IP: {request.client.host if request.client else 'unknown'}"
-            )
-
-        return await call_next(request)
 
 
 class PayloadSizeMiddleware(BaseHTTPMiddleware):

@@ -4,6 +4,7 @@ import os
 import tempfile
 import time
 from io import BytesIO
+from uuid import UUID
 
 import aiohttp
 import numpy as np
@@ -11,11 +12,28 @@ import torch
 from fastapi import Request, status
 from PIL import Image, UnidentifiedImageError
 import pillow_heif  # type: ignore
+from sqlalchemy import func, select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.api.core.exceptions.base import GeoInferException
-from src.api.core.messages import MessageCode
-from src.api.prediction.schemas import CoordinatePrediction, PredictionResult
-from src.modules.prediction.infrastructure.inference import get_model
+from src.api.core.messages import MessageCode, Paginated, PaginationInfo
+from src.core.context import AuthenticatedUserContext
+from src.api.prediction.schemas import (
+    CoordinatePrediction,
+    PredictionResult,
+    PredictionHistoryRecord,
+)
+from src.core.base import BaseService
+from src.database.models.predictions import Prediction
+from src.database.models.users import User
+from src.database.models.api_keys import ApiKey
+from src.database.models.usage import UsageType
+import uuid
+from src.modules.prediction.infrastructure.inference import (
+    get_model,
+    normalize_confidences,
+    get_location_info,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -97,16 +115,24 @@ async def predict_coordinates_from_url(
                 None, model.predict, temp_path, top_k
             )
 
+            # Normalize raw scores to probabilities using softmax
+            raw_scores = [float(prob) for prob in probabilities]
+            normalized_probs = normalize_confidences(raw_scores)
+
             # Convert to our format
             predictions = []
-            for i, (coords, prob) in enumerate(zip(gps_predictions, probabilities)):
+            for i, (coords, norm_prob) in enumerate(
+                zip(gps_predictions, normalized_probs)
+            ):
                 lat, lon = coords
+                location = get_location_info(float(lat), float(lon))
                 predictions.append(
                     CoordinatePrediction(
                         latitude=float(lat),
                         longitude=float(lon),
-                        confidence=float(prob),
+                        confidence=norm_prob,
                         rank=i + 1,
+                        location=location,
                     )
                 )
 
@@ -179,10 +205,27 @@ async def predict_coordinates_from_file(
 
 
 async def predict_coordinates_from_upload(
-    request: Request, image_data: bytes, top_k: int = 5
+    request: Request,
+    image_data: bytes,
+    top_k: int = 5,
+    db: AsyncSession | None = None,
+    current_user: AuthenticatedUserContext | None = None,
+    input_filename: str | None = None,
+    save_to_db: bool = True,
+    credits_consumed: int | None = None,
+    usage_type: UsageType | None = None,
 ) -> PredictionResult:
     """
     Predict GPS coordinates from uploaded image data.
+
+    Args:
+        request: FastAPI request object
+        image_data: Image bytes to process
+        top_k: Number of top predictions to return
+        db: Database session (required if save_to_db=True)
+        current_user: Current authenticated user (required if save_to_db=True)
+        input_filename: Filename for the uploaded file
+        save_to_db: Whether to save prediction to database
 
     Returns:
         PredictionResult with multiple predictions and timing info
@@ -222,26 +265,50 @@ async def predict_coordinates_from_upload(
                 None, model.predict, temp_path, top_k
             )
 
+            # Normalize raw scores to probabilities using softmax
+            raw_scores = [float(prob) for prob in probabilities]
+            normalized_probs = normalize_confidences(raw_scores)
+
             # Convert to our format
             predictions = []
-            for i, (coords, prob) in enumerate(zip(gps_predictions, probabilities)):
+            for i, (coords, norm_prob) in enumerate(
+                zip(gps_predictions, normalized_probs)
+            ):
                 lat, lon = coords
+                location = get_location_info(float(lat), float(lon))
                 predictions.append(
                     CoordinatePrediction(
                         latitude=float(lat),
                         longitude=float(lon),
-                        confidence=float(prob),
+                        confidence=norm_prob,
                         rank=i + 1,
+                        location=location,
                     )
                 )
 
             processing_time_ms = int((time.time() - start_time) * 1000)
 
-            return PredictionResult(
+            result = PredictionResult(
                 predictions=predictions,
                 processing_time_ms=processing_time_ms,
                 top_prediction=predictions[0] if predictions else None,
             )
+
+            # Save to database if requested and we have the required parameters
+            if save_to_db and db is not None and current_user is not None:
+                await save_prediction_to_db(
+                    db=db,
+                    user_id=current_user.user.id,
+                    organization_id=current_user.organization.id,
+                    api_key_id=(
+                        current_user.api_key.id if current_user.api_key else None
+                    ),
+                    processing_time_ms=processing_time_ms,
+                    credits_consumed=credits_consumed,
+                    usage_type=usage_type or UsageType.GEOINFER_GLOBAL_0_0_1,
+                )
+
+            return result
 
         finally:
             # Clean up temporary file
@@ -278,6 +345,34 @@ async def predict_coordinates_from_upload(
         )
 
 
+async def save_prediction_to_db(
+    db: AsyncSession,
+    user_id: UUID | None,
+    organization_id: UUID,
+    api_key_id: UUID | None,
+    processing_time_ms: int | None = None,
+    credits_consumed: int | None = None,
+    usage_type: UsageType = UsageType.GEOINFER_GLOBAL_0_0_1,
+) -> Prediction:
+    """Save prediction tracking to the database."""
+
+    prediction = Prediction(
+        id=uuid.uuid4(),
+        user_id=user_id,
+        organization_id=organization_id,
+        api_key_id=api_key_id,
+        processing_time_ms=processing_time_ms,
+        credits_consumed=credits_consumed,
+        usage_type=usage_type,
+    )
+
+    db.add(prediction)
+    await db.commit()
+    await db.refresh(prediction)
+
+    return prediction
+
+
 def calculate_haversine_distance(
     lat1: float, lon1: float, lat2: float, lon2: float
 ) -> float:
@@ -293,3 +388,60 @@ def calculate_haversine_distance(
     c = 2 * np.arcsin(np.sqrt(a))
     km = (rad_np * c) / 1000
     return float(km)
+
+
+class PredictionHistoryService(BaseService):
+    """Service for retrieving prediction history with user and usage details."""
+
+    async def get_prediction_history(
+        self, organization_id: UUID, limit: int = 50, offset: int = 0
+    ) -> Paginated[PredictionHistoryRecord]:
+        """Get organization's prediction history with user/API key details."""
+
+        # Build the main query with simple joins for names only
+        stmt = (
+            select(
+                Prediction,
+                User.name.label("user_name"),
+                ApiKey.name.label("api_key_name"),
+            )
+            .outerjoin(User, Prediction.user_id == User.id)
+            .outerjoin(ApiKey, Prediction.api_key_id == ApiKey.id)
+            .where(Prediction.organization_id == organization_id)
+            .order_by(Prediction.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+
+        result = await self.db.execute(stmt)
+        rows = result.all()
+
+        # Get total count
+        count_stmt = select(func.count(Prediction.id)).where(
+            Prediction.organization_id == organization_id
+        )
+        count_result = await self.db.execute(count_stmt)
+        total_records = count_result.scalar() or 0
+
+        # Transform to response models
+        prediction_records = [
+            PredictionHistoryRecord.from_prediction_row(
+                prediction=row.Prediction,
+                user_name=row.user_name,
+                api_key_name=row.api_key_name,
+            )
+            for row in rows
+        ]
+
+        # Create pagination info
+        pagination_info = PaginationInfo(
+            total=total_records,
+            limit=limit,
+            offset=offset,
+            has_more=offset + len(prediction_records) < total_records,
+        )
+
+        return Paginated[PredictionHistoryRecord](
+            items=prediction_records,
+            pagination=pagination_info,
+        )

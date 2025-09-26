@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 from src.api.core.messages import APIResponse
 from src.api.user.schemas import UserModel
 from src.api.organization.schemas import OrganizationModel
@@ -32,7 +32,7 @@ class InvitationWithDetailsModel(InvitationModel):
 
 
 class InvitationCreateRequest(BaseModel):
-    email: EmailStr
+    email: str
     expires_in_days: int = Field(default=7, ge=1, le=30)
 
 

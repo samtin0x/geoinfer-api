@@ -37,10 +37,13 @@ async def auth_middleware(request: Request, call_next):
         },
     )
 
-    # Skip authentication for certain endpoints
-    if path_matches(request.url.path, SKIP_AUTH_PATHS):
+    # Skip authentication for OPTIONS requests (CORS preflight) and certain endpoints
+    if request.method == "OPTIONS" or path_matches(request.url.path, SKIP_AUTH_PATHS):
         logger.debug(
-            "Skipping auth for path", path=request.url.path, skip_paths=SKIP_AUTH_PATHS
+            "Skipping auth for path/method",
+            path=request.url.path,
+            method=request.method,
+            skip_paths=SKIP_AUTH_PATHS,
         )
         request.state.user = None
         request.state.api_key = None

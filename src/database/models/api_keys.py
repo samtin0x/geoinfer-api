@@ -38,6 +38,7 @@ class ApiKey(Base):
     # Relationships
     organization = relationship("Organization", back_populates="api_keys")
     user = relationship("User", back_populates="api_keys")
+    predictions = relationship("Prediction", back_populates="api_key")
 
     @classmethod
     def create_key(
