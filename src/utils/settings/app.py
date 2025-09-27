@@ -9,9 +9,7 @@ class AppSettings(BaseSettings):
     API_VERSION: str = "0.0.1"
     CORS_ORIGINS: list[str] = [
         "http://localhost:3050",
-        "http://localhost:3000",
         "https://geoinfer.com",
-        "https://www.geoinfer.com",
         "https://app.geoinfer.com",
     ]
 
