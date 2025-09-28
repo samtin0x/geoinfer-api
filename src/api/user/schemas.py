@@ -2,12 +2,14 @@ from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, Field
 from src.api.core.messages import APIResponse
+from src.database.models.organizations import PlanTier
 
 
 class UserOrganizationModel(BaseModel):
     id: UUID
     name: str
     logo_url: str | None = None
+    plan_tier: PlanTier
     created_at: datetime
 
     class Config:
@@ -19,7 +21,6 @@ class UserModel(BaseModel):
     id: UUID
     name: str
     email: str
-    plan_tier: str | None = None
     organization_id: UUID | None = None
     organization_name: str | None = None
     created_at: datetime

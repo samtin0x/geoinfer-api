@@ -160,6 +160,8 @@ async def test_list_user_organizations_success(
     assert test_org_data["name"] == test_organization.name
     assert "created_at" in test_org_data
     assert "is_active" in test_org_data
+    assert "plan_tier" in test_org_data
+    assert test_org_data["plan_tier"] == test_organization.plan_tier.value
 
 
 @pytest.mark.asyncio

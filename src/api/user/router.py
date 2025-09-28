@@ -77,6 +77,7 @@ async def list_user_organizations(
             "id": org.id,
             "name": org.name,
             "logo_url": org.logo_url,
+            "plan_tier": org.plan_tier,
             "created_at": org.created_at.isoformat(),
         }
         org_data.append(UserOrganizationModel.model_validate(org_dict))

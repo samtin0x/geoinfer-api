@@ -70,6 +70,8 @@ async def test_list_user_organizations_success(
     assert test_org_data["is_active"] is True  # Should be active by default
     assert "created_at" in test_org_data
     assert "logo_url" in test_org_data
+    assert "plan_tier" in test_org_data
+    assert test_org_data["plan_tier"] == test_organization.plan_tier.value
 
 
 @pytest.mark.asyncio
@@ -107,8 +109,10 @@ async def test_list_user_organizations_with_multiple_orgs(
         assert "logo_url" in org
         assert "created_at" in org
         assert "is_active" in org
+        assert "plan_tier" in org
         assert isinstance(org["name"], str)
         assert isinstance(org["is_active"], bool)
+        assert isinstance(org["plan_tier"], str)
 
 
 @pytest.mark.asyncio
