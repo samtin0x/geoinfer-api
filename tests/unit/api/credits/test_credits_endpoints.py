@@ -458,3 +458,53 @@ async def test_credit_usage_tracking_with_predictions(
             # For now, just verify the balance endpoint still works
             final_balance_response = await authorized_client.get("/v1/credits/balance")
             assert final_balance_response.status_code == status.HTTP_200_OK
+
+
+@pytest.mark.asyncio
+async def test_credits_summary_includes_billing_info(
+    app, authorized_client: AsyncClient, test_user, db_session
+):
+    """Test that credits summary includes billing interval and price paid for subscriptions."""
+    response = await authorized_client.get("/v1/credits/summary")
+
+    # Should either succeed or fail based on permissions
+    assert response.status_code in [status.HTTP_200_OK, status.HTTP_403_FORBIDDEN]
+
+    if response.status_code == status.HTTP_200_OK:
+        data = response.json()
+        assert "data" in data
+        assert "message_code" in data
+        assert data["message_code"] == "SUCCESS"
+
+        # Verify summary data structure
+        summary_data = data["data"]
+        assert "summary" in summary_data
+        assert "subscription" in summary_data
+        assert "overage" in summary_data
+        assert "topups" in summary_data
+
+        # If subscription exists, verify billing info is included
+        if summary_data["subscription"]:
+            subscription = summary_data["subscription"]
+            assert "billing_interval" in subscription
+            assert "price_paid" in subscription
+            assert "overage_unit_price" in subscription
+            assert subscription["billing_interval"] in ["monthly", "yearly"]
+            assert isinstance(subscription["price_paid"], (int, float))
+            assert subscription["price_paid"] >= 0
+            assert isinstance(subscription["overage_unit_price"], (int, float))
+            assert subscription["overage_unit_price"] >= 0
+
+            # Verify other subscription fields
+            assert "id" in subscription
+            assert "monthly_allowance" in subscription
+            assert "granted_this_period" in subscription
+            assert "used_this_period" in subscription
+            assert "remaining" in subscription
+            assert "period_start" in subscription
+            assert "period_end" in subscription
+            assert "status" in subscription
+            assert "cancel_at_period_end" in subscription
+            assert "pause_access" in subscription
+            assert isinstance(subscription["cancel_at_period_end"], bool)
+            assert isinstance(subscription["pause_access"], bool)

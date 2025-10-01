@@ -5,8 +5,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from uuid import UUID
 
-from sqlalchemy import DateTime, String
 from sqlalchemy.dialects.postgresql import UUID as SQLAlchemyUUID
+from sqlalchemy import DateTime, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -47,13 +47,14 @@ class Organization(Base):
     __tablename__ = "organizations"
 
     id: Mapped[UUID] = mapped_column(
-        SQLAlchemyUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+        SQLAlchemyUUID, primary_key=True, default=uuid.uuid4
     )
     name: Mapped[str] = mapped_column(String, nullable=False)
     logo_url: Mapped[str | None] = mapped_column(String, nullable=True)
     plan_tier: Mapped[PlanTier] = mapped_column(
         String, default=PlanTier.FREE, nullable=False
     )
+    stripe_customer_id: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
@@ -88,6 +89,11 @@ class Organization(Base):
     )
     api_keys = relationship(
         "ApiKey",
+        back_populates="organization",
+        cascade="all, delete-orphan",
+    )
+    alerts = relationship(
+        "Alert",
         back_populates="organization",
         cascade="all, delete-orphan",
     )

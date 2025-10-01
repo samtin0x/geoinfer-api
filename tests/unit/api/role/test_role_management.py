@@ -258,9 +258,7 @@ async def test_get_organization_users_with_roles_success(
     app, authorized_client: AsyncClient, test_organization, db_session
 ):
     """Test successful retrieval of organization users with roles."""
-    response = await authorized_client.get(
-        f"/v1/roles/organizations/{test_organization.id}/users"
-    )
+    response = await authorized_client.get("/v1/organizations/users")
 
     assert response.status_code in [status.HTTP_200_OK, status.HTTP_403_FORBIDDEN]
 
@@ -268,18 +266,23 @@ async def test_get_organization_users_with_roles_success(
         data = response.json()
         assert "data" in data
         assert "message_code" in data
-        assert data["message_code"] == "success"
+        assert data["message_code"] == "SUCCESS"
 
-        org_users = data["data"]
+        org_data = data["data"]
+        assert "users" in org_data
+        assert "organization_id" in org_data
+        assert "user_count" in org_data
+
+        org_users = org_data["users"]
         assert isinstance(org_users, list)
 
         # Verify user role data structure
         for org_user in org_users:
             assert "user_id" in org_user
-            assert "user_email" in org_user
-            assert "full_name" in org_user
+            assert "email" in org_user
+            assert "name" in org_user
             assert "role" in org_user
             assert "joined_at" in org_user
-            assert isinstance(org_user["user_email"], str)
-            assert isinstance(org_user["full_name"], str)
+            assert isinstance(org_user["email"], str)
+            assert isinstance(org_user["name"], str)
             assert isinstance(org_user["role"], str)

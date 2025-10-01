@@ -26,10 +26,14 @@ class Invitation(Base):
         SQLAlchemyUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     organization_id: Mapped[UUID] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        SQLAlchemyUUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
     )
     invited_by_id: Mapped[UUID] = mapped_column(
-        ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+        SQLAlchemyUUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
     )
     email: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[InvitationStatus] = mapped_column(

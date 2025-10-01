@@ -1,5 +1,6 @@
 """Database models for GeoInfer API."""
 
+from .alerts import Alert, AlertSettings
 from .api_keys import ApiKey
 from .base import Base
 from .credit_grants import CreditGrant, GrantType
@@ -12,7 +13,7 @@ from .organizations import (
 )
 from .predictions import Prediction
 from .roles import UserOrganizationRole
-from .subscriptions import TopUp, Subscription, SubscriptionStatus
+from .subscriptions import TopUp, Subscription, SubscriptionStatus, UsagePeriod
 from .usage import OperationType, UsageRecord, UsageType
 from .users import User
 
@@ -36,6 +37,9 @@ __all__ = [
     "UsageRecord",
     "Subscription",
     "TopUp",
+    "UsagePeriod",
+    "AlertSettings",
+    "Alert",
     "Invitation",
     "UserOrganizationRole",
     "Prediction",

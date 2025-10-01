@@ -219,6 +219,7 @@ class OrganizationService(BaseService):
                     "name": user_role.user.name,
                     "email": user_role.user.email,
                     "role": role_value,
+                    "joined_at": user_role.granted_at.isoformat(),
                 }
             )
 

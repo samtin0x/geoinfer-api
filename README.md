@@ -89,6 +89,48 @@ SUPABASE_KEY="your-supabase-anon-key"
 SUPABASE_JWT_SECRET="your-jwt-secret"
 RESEND_API_KEY="your-resend-api-key"
 STRIPE_SECRET_KEY="your-stripe-secret-key"
+STRIPE_WEBHOOK_SECRET="your-stripe-webhook-secret"
 ```
+
+## 💳 Stripe Webhook Development
+
+For local development, use the Stripe CLI to forward webhook events:
+
+1. **Install Stripe CLI** (if not already installed)
+   ```bash
+   # macOS
+   brew install stripe/stripe-cli/stripe
+   
+   # Other platforms: https://stripe.com/docs/stripe-cli#install
+   ```
+
+2. **Login to Stripe CLI**
+   ```bash
+   stripe login
+   ```
+
+3. **Forward webhooks to your local API**
+   ```bash
+   stripe listen --forward-to localhost:8010/stripe/webhook
+   ```
+
+4. **Copy the webhook signing secret** from the CLI output and add it to your `.env`:
+   ```bash
+   STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxx
+   ```
+
+5. **Test webhook events** in another terminal:
+   ```bash
+   # Test a successful payment
+   stripe trigger checkout.session.completed
+   
+   # Test subscription created
+   stripe trigger customer.subscription.created
+   ```
+
+The webhook endpoint is at `/stripe/webhook` and handles events for:
+- Subscription creation and updates
+- Payment success/failure
+- Customer portal updates
 
 That's it! You're ready to develop locally with fast hot reloads. 🎉

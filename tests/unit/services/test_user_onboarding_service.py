@@ -1,4 +1,5 @@
 from uuid import uuid4
+from unittest.mock import patch, MagicMock
 
 import pytest
 
@@ -28,6 +29,85 @@ async def test_ensure_user_onboarded_creates_user_and_org(db_session):
     assert organization.id == user_id
     assert organization.name == email
     # Organization is active for the user since user.organization_id points to it
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_ensure_user_onboarded_creates_stripe_customer(db_session):
+    """Test that user onboarding creates a Stripe customer for the organization."""
+    service = UserOnboardingService(db_session)
+
+    user_id = uuid4()
+    email = "stripe-user@example.com"
+
+    with (
+        patch("stripe.Customer.create") as mock_customer_create,
+        patch("src.utils.settings.stripe.StripeSettings") as mock_stripe_settings,
+    ):
+
+        # Mock Stripe settings
+        mock_settings = MagicMock()
+        mock_settings.STRIPE_SECRET_KEY.get_secret_value.return_value = "sk_test_fake"
+        mock_stripe_settings.return_value = mock_settings
+
+        # Mock Stripe customer creation
+        mock_customer = MagicMock()
+        mock_customer.id = "cus_onboarding_test_123"
+        mock_customer_create.return_value = mock_customer
+
+        user, organization = await service.ensure_user_onboarded(
+            user_id=user_id,
+            email=email,
+            name="Stripe User",
+            plan_tier=PlanTier.FREE,
+        )
+
+        # Verify Stripe customer was created
+        mock_customer_create.assert_called_once()
+        call_args = mock_customer_create.call_args[1]
+        assert call_args["email"] == email
+        assert call_args["name"] == email  # organization name defaults to email
+        assert call_args["metadata"]["organization_id"] == str(organization.id)
+
+        # Verify customer ID was stored in organization
+        assert organization.stripe_customer_id == "cus_onboarding_test_123"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_onboarding_continues_if_stripe_customer_creation_fails(db_session):
+    """Test that onboarding continues even if Stripe customer creation fails."""
+    service = UserOnboardingService(db_session)
+
+    user_id = uuid4()
+    email = "failing-stripe@example.com"
+
+    with (
+        patch("stripe.Customer.create") as mock_customer_create,
+        patch("src.utils.settings.stripe.StripeSettings") as mock_stripe_settings,
+    ):
+
+        # Mock Stripe settings
+        mock_settings = MagicMock()
+        mock_settings.STRIPE_SECRET_KEY.get_secret_value.return_value = "sk_test_fake"
+        mock_stripe_settings.return_value = mock_settings
+
+        # Mock Stripe customer creation failure
+        mock_customer_create.side_effect = Exception("Stripe API error")
+
+        # Should not raise exception
+        user, organization = await service.ensure_user_onboarded(
+            user_id=user_id,
+            email=email,
+            name="Failing User",
+            plan_tier=PlanTier.FREE,
+        )
+
+        # User and organization should still be created
+        assert user.id == user_id
+        assert user.email == email
+        assert organization.plan_tier == PlanTier.FREE
+
+        # Customer ID should be None since creation failed
+        assert organization.stripe_customer_id is None
 
 
 @pytest.mark.asyncio(loop_scope="session")

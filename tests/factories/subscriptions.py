@@ -15,6 +15,7 @@ class SubscriptionFactory(AsyncSQLAlchemyModelFactory[Subscription]):
     id = UUIDFactory()
     organization_id = factory.SubFactory(OrganizationFactory)
     stripe_subscription_id = factory.Faker("bothify", text="sub_??????????")
+    stripe_customer_id = factory.Faker("bothify", text="cus_??????????")
     description = factory.Faker("sentence")
     price_paid = factory.Faker(
         "pydecimal", left_digits=3, right_digits=2, positive=True

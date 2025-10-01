@@ -28,7 +28,7 @@ def add_request_info(
 def setup_logging(is_production: bool = False):
     """Setup structlog configuration with different formats for dev/prod."""
     # Use DEBUG level in development, INFO in production
-    log_level = logging.INFO if is_production else logging.DEBUG
+    log_level = logging.INFO  # if is_production else logging.DEBUG
 
     logging.basicConfig(
         format="%(message)s",
@@ -80,6 +80,9 @@ def setup_logging(is_production: bool = False):
 
     logging.getLogger("uvicorn").handlers = []
     logging.getLogger("uvicorn.access").handlers = []
+
+    # Disable verbose Stripe logging (only show warnings/errors)
+    logging.getLogger("stripe").setLevel(logging.WARNING)
 
     logger = structlog.get_logger()
     return logger

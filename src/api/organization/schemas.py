@@ -36,6 +36,7 @@ class UserWithRoleData(BaseModel):
     name: str
     email: str
     role: str
+    joined_at: str
 
 
 class OrganizationUsersData(BaseModel):

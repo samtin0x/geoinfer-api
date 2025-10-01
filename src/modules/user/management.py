@@ -150,7 +150,6 @@ class UserManagementService(BaseService):
         """
         Ensure user is onboarded with user organization (cached).
         """
-        logger.debug(f"Onboarding check for user: {user_id}")
         onboarding_service = UserOnboardingService(self.db)
         user, user_org = await onboarding_service.ensure_user_onboarded(
             user_id=user_id,

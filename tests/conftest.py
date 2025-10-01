@@ -22,6 +22,7 @@ from src.database.models import (
     User,
     Organization,
     ApiKey,
+    Subscription,
     PlanTier,
     OrganizationRole,
 )
@@ -34,7 +35,33 @@ from tests.factories import (
     OrganizationFactory,
     ApiKeyFactory,
     UserOrganizationRoleFactory,
+    SubscriptionFactory,
 )
+
+
+@pytest.fixture
+def user_factory():
+    return UserFactory
+
+
+@pytest.fixture
+def organization_factory():
+    return OrganizationFactory
+
+
+@pytest.fixture
+def subscription_factory():
+    return SubscriptionFactory
+
+
+@pytest.fixture
+def api_key_factory():
+    return ApiKeyFactory
+
+
+@pytest.fixture
+def role_factory():
+    return UserOrganizationRoleFactory
 
 
 @pytest.fixture(autouse=True)
@@ -174,31 +201,6 @@ async def app():
         yield app
 
 
-# Database Factory Fixtures
-@pytest.fixture
-def organization_factory():
-    """Factory for creating Organization instances."""
-    return OrganizationFactory
-
-
-@pytest.fixture
-def user_factory():
-    """Factory for creating User instances."""
-    return UserFactory
-
-
-@pytest.fixture
-def api_key_factory():
-    """Factory for creating ApiKey instances."""
-    return ApiKeyFactory
-
-
-@pytest.fixture
-def role_factory():
-    """Factory for creating UserOrganizationRole instances."""
-    return UserOrganizationRoleFactory
-
-
 # Test Data Fixtures
 @pytest_asyncio.fixture
 async def test_organization(
@@ -229,6 +231,29 @@ async def test_user(
         organization_id=test_organization.id,
     )
     return user
+
+
+@pytest_asyncio.fixture
+async def test_subscription(
+    db_session: AsyncSession,
+    subscription_factory,
+    test_organization: Organization,
+) -> Subscription:
+    """Create a test subscription for the test organization."""
+    from datetime import datetime, timezone, timedelta
+
+    subscription = await subscription_factory.create_async(
+        db_session,
+        organization_id=test_organization.id,
+        status="active",
+        monthly_allowance=1000,
+        overage_enabled=False,
+        price_paid=60.0,
+        description="Test Subscription",
+        current_period_start=datetime.now(timezone.utc),
+        current_period_end=datetime.now(timezone.utc) + timedelta(days=30),
+    )
+    return subscription
 
 
 @pytest_asyncio.fixture
@@ -336,16 +361,16 @@ def jwt_token_factory() -> Callable[[str, str, str], str]:
     return create_token
 
 
-@pytest.fixture
-def user_token(
+@pytest_asyncio.fixture
+async def user_token(
     test_user: User, jwt_token_factory: Callable[[str, str, str], str]
 ) -> str:
     """Create a JWT token for the test user."""
     return jwt_token_factory(str(test_user.id), test_user.email, test_user.name)
 
 
-@pytest.fixture
-def admin_token(
+@pytest_asyncio.fixture
+async def admin_token(
     test_admin_user: User, jwt_token_factory: Callable[[str, str, str], str]
 ) -> str:
     """Create a JWT token for the admin user."""
@@ -354,8 +379,8 @@ def admin_token(
     )
 
 
-@pytest.fixture
-def member_token(
+@pytest_asyncio.fixture
+async def member_token(
     test_member_user: User, jwt_token_factory: Callable[[str, str, str], str]
 ) -> str:
     """Create a JWT token for the member user."""

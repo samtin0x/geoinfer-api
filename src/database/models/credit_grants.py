@@ -26,13 +26,19 @@ class CreditGrant(Base):
         SQLAlchemyUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     organization_id: Mapped[UUID] = mapped_column(
-        ForeignKey("organizations.id", ondelete="CASCADE"), nullable=False
+        SQLAlchemyUUID(as_uuid=True),
+        ForeignKey("organizations.id", ondelete="CASCADE"),
+        nullable=False,
     )
     subscription_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("subscriptions.id", ondelete="SET NULL"), nullable=True
+        SQLAlchemyUUID(as_uuid=True),
+        ForeignKey("subscriptions.id", ondelete="SET NULL"),
+        nullable=True,
     )
     topup_id: Mapped[UUID | None] = mapped_column(
-        ForeignKey("topups.id", ondelete="SET NULL"), nullable=True
+        SQLAlchemyUUID(as_uuid=True),
+        ForeignKey("topups.id", ondelete="SET NULL"),
+        nullable=True,
     )
     grant_type: Mapped[GrantType] = mapped_column(String, nullable=False)
     description: Mapped[str] = mapped_column(String, nullable=False)

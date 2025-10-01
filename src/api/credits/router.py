@@ -16,6 +16,7 @@ from src.api.credits.schemas import (
     UserCreditBalanceResponse,
     UsageHistoryResponse,
     CreditGrantsHistoryResponse,
+    CreditsSummaryResponse,
 )
 
 router = APIRouter(
@@ -25,13 +26,12 @@ router = APIRouter(
 
 
 @router.get("/balance", response_model=UserCreditBalanceResponse)
-@require_permission(OrganizationPermission.VIEW_ANALYTICS)
 async def get_credit_balance(
     request: Request,
     db: AsyncSessionDep,
     current_user: CurrentUserAuthDep,
 ) -> UserCreditBalanceResponse:
-    """Get current organization's credit balance and usage information."""
+    """Get current organization's credit balance - open to all authenticated users."""
     credit_service = PredictionCreditService(db)
     subscription_credits, top_up_credits = (
         await credit_service.get_organization_credits(
@@ -44,6 +44,21 @@ async def get_credit_balance(
         top_up_credits=top_up_credits,
     )
     return APIResponse.success(message_code=MessageCode.SUCCESS, data=balance_data)
+
+
+@router.get("/summary", response_model=CreditsSummaryResponse)
+@require_permission(OrganizationPermission.MANAGE_BILLING)
+async def get_credits_summary(
+    request: Request,
+    db: AsyncSessionDep,
+    current_user: CurrentUserAuthDep,
+) -> CreditsSummaryResponse:
+    """Get detailed credits summary including subscription, topups, and overage breakdown."""
+    credit_service = PredictionCreditService(db)
+    summary_data = await credit_service.get_credits_summary(
+        organization_id=current_user.organization.id
+    )
+    return APIResponse.success(message_code=MessageCode.SUCCESS, data=summary_data)
 
 
 @router.get("/consumption", response_model=UsageHistoryResponse)

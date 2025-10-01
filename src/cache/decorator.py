@@ -15,8 +15,18 @@ def _generate_cache_key(func, args: tuple, kwargs: dict) -> str:
     # Create a hash of the function name and arguments
     key_parts = [func.__module__, func.__qualname__]
 
-    # Add positional arguments
-    for arg in args:
+    # Skip 'self' for instance methods (first argument)
+    # Check if this looks like an instance method by checking if first arg is an object
+    start_idx = 0
+    if (
+        args
+        and hasattr(args[0], "__dict__")
+        and not isinstance(args[0], (str, int, float, bool, list, dict, tuple, set))
+    ):
+        start_idx = 1
+
+    # Add positional arguments (skipping self if instance method)
+    for arg in args[start_idx:]:
         key_parts.append(str(arg))
 
     # Add keyword arguments in sorted order

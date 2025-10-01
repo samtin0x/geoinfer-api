@@ -86,11 +86,17 @@ class MessageCode(str, Enum):
     CANNOT_REMOVE_YOURSELF = "CANNOT_REMOVE_YOURSELF"
     USER_NOT_MEMBER_OF_ORGANIZATION = "USER_NOT_MEMBER_OF_ORGANIZATION"
 
+    # Billing errors
+    SUBSCRIPTION_NOT_FOUND = "SUBSCRIPTION_NOT_FOUND"
+    ALERT_SETTINGS_NOT_CONFIGURED = "ALERT_SETTINGS_NOT_CONFIGURED"
+    NO_ALERT_DESTINATIONS = "NO_ALERT_DESTINATIONS"
+
     # Generic errors
     INTERNAL_ERROR = "INTERNAL_ERROR"
     INTERNAL_SERVER_ERROR = "INTERNAL_SERVER_ERROR"
     RESOURCE_NOT_FOUND = "RESOURCE_NOT_FOUND"
     BAD_REQUEST = "BAD_REQUEST"
+    NOT_FOUND = "NOT_FOUND"
 
 
 # Default messages for each message code
@@ -159,11 +165,16 @@ DEFAULT_MESSAGES = {
     MessageCode.USER_REMOVED_FROM_ORGANIZATION: "User removed from organization successfully",
     MessageCode.CANNOT_REMOVE_YOURSELF: "Cannot remove yourself from organization",
     MessageCode.USER_NOT_MEMBER_OF_ORGANIZATION: "User is not a member of this organization",
+    # Billing errors
+    MessageCode.SUBSCRIPTION_NOT_FOUND: "Subscription not found",
+    MessageCode.ALERT_SETTINGS_NOT_CONFIGURED: "Alert settings not configured",
+    MessageCode.NO_ALERT_DESTINATIONS: "No email destinations configured for alerts",
     # Generic errors
     MessageCode.INTERNAL_ERROR: "Internal server error",
     MessageCode.INTERNAL_SERVER_ERROR: "Internal server error",
     MessageCode.RESOURCE_NOT_FOUND: "Resource not found",
     MessageCode.BAD_REQUEST: "Bad request",
+    MessageCode.NOT_FOUND: "Resource not found",
 }
 
 T = TypeVar("T")

@@ -117,12 +117,16 @@ def register_exception_handlers(app: FastAPI) -> None:
         # Convert errors to a serializable format
         try:
             errors = exc.errors()
-            # Convert datetime objects to strings
+            # Convert datetime and UUID objects to strings
             serializable_errors = []
             for error in errors:
                 error_dict = dict(error)
-                if "input" in error_dict and hasattr(error_dict["input"], "isoformat"):
-                    error_dict["input"] = error_dict["input"].isoformat()
+                if "input" in error_dict:
+                    input_value = error_dict["input"]
+                    if hasattr(input_value, "isoformat"):  # datetime
+                        error_dict["input"] = input_value.isoformat()
+                    elif hasattr(input_value, "hex"):  # UUID
+                        error_dict["input"] = str(input_value)
                 serializable_errors.append(error_dict)
         except Exception:
             serializable_errors = [
@@ -157,12 +161,16 @@ def register_exception_handlers(app: FastAPI) -> None:
         # Convert errors to a serializable format
         try:
             errors = exc.errors()
-            # Convert datetime objects to strings
+            # Convert datetime and UUID objects to strings
             serializable_errors = []
             for error in errors:
                 error_dict = dict(error)
-                if "input" in error_dict and hasattr(error_dict["input"], "isoformat"):
-                    error_dict["input"] = error_dict["input"].isoformat()
+                if "input" in error_dict:
+                    input_value = error_dict["input"]
+                    if hasattr(input_value, "isoformat"):  # datetime
+                        error_dict["input"] = input_value.isoformat()
+                    elif hasattr(input_value, "hex"):  # UUID
+                        error_dict["input"] = str(input_value)
                 serializable_errors.append(error_dict)
         except Exception:
             serializable_errors = [

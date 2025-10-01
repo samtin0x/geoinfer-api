@@ -9,7 +9,7 @@ from .predictions import PredictionFactory
 from .credit_grants import CreditGrantFactory
 from .subscriptions import SubscriptionFactory, TopUpFactory
 from .roles import UserOrganizationRoleFactory
-from .usage import UsageRecordFactory
+from .usage import UsageRecordFactory, UsagePeriodFactory
 
 __all__ = [
     "AsyncSQLAlchemyModelFactory",
@@ -23,4 +23,5 @@ __all__ = [
     "TopUpFactory",
     "UserOrganizationRoleFactory",
     "UsageRecordFactory",
+    "UsagePeriodFactory",
 ]

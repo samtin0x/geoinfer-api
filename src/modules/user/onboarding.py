@@ -82,7 +82,45 @@ class UserOnboardingService(BaseService):
             organization_id=organization.id,
             user_id=user_id,
         )
+
+        await self._create_stripe_customer_for_organization(organization, email)
+
         return user, organization
+
+    async def _create_stripe_customer_for_organization(
+        self, organization: Organization, email: str
+    ) -> None:
+        """Create a Stripe customer for the organization during onboarding."""
+        try:
+            import stripe
+            from src.utils.settings.stripe import StripeSettings
+
+            # Set Stripe API key
+            stripe.api_key = StripeSettings().STRIPE_SECRET_KEY.get_secret_value()
+
+            # Create Stripe customer
+            customer = stripe.Customer.create(
+                email=email,
+                name=organization.name,
+                metadata={
+                    "organization_id": str(organization.id),
+                    "organization_name": organization.name,
+                },
+            )
+
+            # Store customer ID in organization
+            organization.stripe_customer_id = customer.id
+            await self.db.commit()
+
+            self.logger.info(
+                f"Created Stripe customer {customer.id} for organization {organization.id} during onboarding"
+            )
+
+        except Exception as e:
+            # Log error but don't fail onboarding - customer can be created later during checkout
+            self.logger.warning(
+                f"Failed to create Stripe customer for organization {organization.id} during onboarding: {e}"
+            )
 
     async def _update_user_info(
         self,

@@ -19,6 +19,7 @@ GLOBAL_MODEL_CREDIT_COST = 1
 
 # credits granted to new trial users during onboarding
 FREE_TRIAL_SIGNUP_CREDIT_AMOUNT = 15
+TRIAL_CREDIT_EXPIRY_DAYS = 15
 
 # Prediction parameters
 MIN_TOP_K = 1
@@ -50,6 +51,7 @@ SKIP_AUTH_PATHS = {
     "/",
     "/stripe/webhook",
     "/v1/prediction/trial",
+    "/v1/billing/catalog",
 }
 
 API_KEY_ALLOWED_ENDPOINTS = {

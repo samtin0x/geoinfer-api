@@ -3,10 +3,8 @@
 import uuid
 from datetime import datetime, timezone
 from enum import Enum
-from uuid import UUID
 
-from sqlalchemy import DateTime, Integer, String
-from sqlalchemy.dialects.postgresql import UUID as SQLAlchemyUUID
+from sqlalchemy import DateTime, Integer, String, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base
@@ -24,28 +22,16 @@ class OperationType(str, Enum):
 class UsageRecord(Base):
     __tablename__ = "usage_records"
 
-    id: Mapped[UUID] = mapped_column(
-        SQLAlchemyUUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    user_id: Mapped[UUID | None] = mapped_column(
-        SQLAlchemyUUID(as_uuid=True), nullable=True
-    )
+    id: Mapped[UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[UUID | None] = mapped_column(UUID, nullable=True)
     credits_consumed: Mapped[int] = mapped_column(Integer, nullable=False)
     usage_type: Mapped[UsageType] = mapped_column(
         String, nullable=False, default=UsageType.GEOINFER_GLOBAL_0_0_1
     )
-    api_key_id: Mapped[UUID | None] = mapped_column(
-        SQLAlchemyUUID(as_uuid=True), nullable=True
-    )
-    organization_id: Mapped[UUID] = mapped_column(
-        SQLAlchemyUUID(as_uuid=True), nullable=False
-    )
-    subscription_id: Mapped[UUID | None] = mapped_column(
-        SQLAlchemyUUID(as_uuid=True), nullable=True
-    )
-    topup_id: Mapped[UUID | None] = mapped_column(
-        SQLAlchemyUUID(as_uuid=True), nullable=True
-    )
+    api_key_id: Mapped[UUID | None] = mapped_column(UUID, nullable=True)
+    organization_id: Mapped[UUID] = mapped_column(UUID, nullable=False)
+    subscription_id: Mapped[UUID | None] = mapped_column(UUID, nullable=True)
+    topup_id: Mapped[UUID | None] = mapped_column(UUID, nullable=True)
     operation_type: Mapped[OperationType] = mapped_column(
         String, nullable=False, default=OperationType.CONSUMPTION
     )

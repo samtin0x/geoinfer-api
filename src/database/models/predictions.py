@@ -1,10 +1,8 @@
 """Prediction model for tracking geospatial predictions."""
 
 from datetime import datetime, timezone
-from uuid import UUID
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String
-from sqlalchemy.dialects.postgresql import UUID as SQLAlchemyUUID
+from sqlalchemy import DateTime, ForeignKey, Integer, String, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -16,7 +14,7 @@ class Prediction(Base):
 
     __tablename__ = "predictions"
 
-    id: Mapped[UUID] = mapped_column(SQLAlchemyUUID(as_uuid=True), primary_key=True)
+    id: Mapped[UUID] = mapped_column(UUID, primary_key=True)
     user_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"), nullable=True
     )

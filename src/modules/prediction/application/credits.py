@@ -1,17 +1,29 @@
 """Credit management service with dependency injection."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from uuid import UUID
 
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_, not_, or_
 
-from src.api.core.constants import FREE_TRIAL_SIGNUP_CREDIT_AMOUNT
+from src.api.core.constants import (
+    FREE_TRIAL_SIGNUP_CREDIT_AMOUNT,
+    TRIAL_CREDIT_EXPIRY_DAYS,
+)
+from src.api.credits.schemas import (
+    CreditsSummaryModel,
+    SubscriptionCreditsSummaryModel,
+    OverageSummaryModel,
+    TopupCreditSummaryModel,
+    CreditsSummaryTotalsModel,
+)
 from src.database.models import (
     CreditGrant,
     GrantType,
     TopUp,
     OperationType,
     Subscription,
+    SubscriptionStatus,
+    UsagePeriod,
     UsageRecord,
     UsageType,
 )
@@ -184,13 +196,17 @@ class PredictionCreditService(BaseService):
         trial_topup_result = await self.db.execute(trial_topup_stmt)
         trial_topups = trial_topup_result.scalars().all()
 
-        # Check if user already has trial credits (no expiration date)
+        # Check if user already has trial credits
         for topup in trial_topups:
-            if not topup.expires_at:
+            if topup.package_type == GrantType.TRIAL:
                 self.logger.info(f"User {user_id} already has trial credits")
                 return True  # Already has trial credits
 
-        # Grant trial credits that never expire
+        trial_expiry = datetime.now(timezone.utc) + timedelta(
+            days=TRIAL_CREDIT_EXPIRY_DAYS
+        )
+
+        # Grant trial credits that expire after 15 days
         trial_topup = TopUp(
             organization_id=organization_id,
             credits_purchased=FREE_TRIAL_SIGNUP_CREDIT_AMOUNT,
@@ -198,7 +214,7 @@ class PredictionCreditService(BaseService):
             stripe_payment_intent_id=None,
             price_paid=0.0,
             package_type=GrantType.TRIAL,
-            expires_at=None,
+            expires_at=trial_expiry,
         )
 
         self.db.add(trial_topup)
@@ -212,7 +228,7 @@ class PredictionCreditService(BaseService):
             description="Geoinfer Trial Credits",
             amount=FREE_TRIAL_SIGNUP_CREDIT_AMOUNT,
             remaining_amount=FREE_TRIAL_SIGNUP_CREDIT_AMOUNT,
-            expires_at=None,
+            expires_at=trial_expiry,
         )
 
         self.db.add(credit_grant)
@@ -319,3 +335,163 @@ class PredictionCreditService(BaseService):
         ]
 
         return grants_records, total_grants
+
+    async def get_credits_summary(self, organization_id: UUID) -> CreditsSummaryModel:
+        """Get detailed credits breakdown including subscription, topups, and overage."""
+        # Get active subscription
+        subscription_stmt = select(Subscription).where(
+            and_(
+                Subscription.organization_id == organization_id,
+                Subscription.status == SubscriptionStatus.ACTIVE,
+            )
+        )
+        subscription_result = await self.db.execute(subscription_stmt)
+        subscription = subscription_result.scalar_one_or_none()
+
+        subscription_summary = None
+        overage_summary = None
+        subscription_credits_total = 0
+
+        if subscription:
+            # Get subscription credit grants for current period
+            sub_grants_stmt = select(CreditGrant).where(
+                and_(
+                    CreditGrant.subscription_id == subscription.id,
+                    CreditGrant.grant_type == GrantType.SUBSCRIPTION,
+                    CreditGrant.expires_at > datetime.now(timezone.utc),
+                )
+            )
+            sub_grants_result = await self.db.execute(sub_grants_stmt)
+            sub_grants = sub_grants_result.scalars().all()
+
+            granted_this_period = sum(grant.amount for grant in sub_grants)
+            remaining = sum(grant.remaining_amount for grant in sub_grants)
+            used_this_period = granted_this_period - remaining
+            subscription_credits_total = remaining
+
+            # Determine billing interval from stripe price ID
+            billing_interval = "monthly"  # default
+            if subscription.stripe_price_base_id:
+                from src.modules.billing.constants import SUBSCRIPTION_PACKAGES
+
+                for package_key, package_info in SUBSCRIPTION_PACKAGES.items():
+                    if package_info.base_price_id == subscription.stripe_price_base_id:
+                        # Determine interval from package key (e.g., PRO_MONTHLY, PRO_YEARLY)
+                        package_name = (
+                            package_key.value
+                            if hasattr(package_key, "value")
+                            else str(package_key)
+                        )
+                        billing_interval = (
+                            "yearly" if "YEARLY" in package_name.upper() else "monthly"
+                        )
+                        break
+
+            subscription_summary = SubscriptionCreditsSummaryModel(
+                id=str(subscription.id),
+                monthly_allowance=subscription.monthly_allowance,
+                granted_this_period=granted_this_period,
+                used_this_period=used_this_period,
+                remaining=remaining,
+                period_start=subscription.current_period_start,
+                period_end=subscription.current_period_end,
+                status=subscription.status,
+                billing_interval=billing_interval,
+                price_paid=subscription.price_paid,
+                overage_unit_price=float(subscription.overage_unit_price),
+                cancel_at_period_end=subscription.cancel_at_period_end,
+                pause_access=subscription.pause_access,
+            )
+
+            # Get current usage period for overage info
+            usage_period_stmt = select(UsagePeriod).where(
+                and_(
+                    UsagePeriod.subscription_id == subscription.id,
+                    not_(UsagePeriod.closed),
+                )
+            )
+            usage_period_result = await self.db.execute(usage_period_stmt)
+            usage_period = usage_period_result.scalar_one_or_none()
+
+            if usage_period:
+                if not subscription.overage_enabled:
+                    effective_cap: int | None = 0
+                    remaining_until_cap: int | None = 0
+                else:
+                    effective_cap = (
+                        subscription.user_extra_cap
+                        if subscription.user_extra_cap
+                        else None
+                    )
+                    remaining_until_cap = (
+                        (effective_cap - usage_period.overage_used)
+                        if effective_cap is not None
+                        else None
+                    )
+
+                overage_summary = OverageSummaryModel(
+                    enabled=subscription.overage_enabled,
+                    used=usage_period.overage_used,
+                    reported_to_stripe=usage_period.overage_reported,
+                    cap=effective_cap,
+                    remaining_until_cap=remaining_until_cap,
+                    unit_price=subscription.overage_unit_price,
+                )
+
+        # Get active topups (including trial credits)
+        topup_grants_stmt = (
+            select(CreditGrant, TopUp)
+            .join(TopUp, CreditGrant.topup_id == TopUp.id)
+            .where(
+                and_(
+                    CreditGrant.organization_id == organization_id,
+                    CreditGrant.grant_type.in_([GrantType.TOPUP, GrantType.TRIAL]),
+                    CreditGrant.remaining_amount > 0,
+                    # Include credits that either don't expire or haven't expired yet
+                    or_(
+                        CreditGrant.expires_at.is_(None),
+                        CreditGrant.expires_at > datetime.now(timezone.utc),
+                    ),
+                )
+            )
+            .order_by(CreditGrant.expires_at.asc().nulls_last())
+        )
+        topup_result = await self.db.execute(topup_grants_stmt)
+        topup_data = topup_result.all()
+
+        topups_summary = []
+        topup_credits_total = 0
+
+        for grant, topup in topup_data:
+            used = grant.amount - grant.remaining_amount
+            topup_credits_total += grant.remaining_amount
+
+            topups_summary.append(
+                TopupCreditSummaryModel(
+                    id=str(grant.id),
+                    name=grant.description,
+                    granted=grant.amount,
+                    used=used,
+                    remaining=grant.remaining_amount,
+                    expires_at=grant.expires_at,
+                    purchased_at=topup.created_at,
+                )
+            )
+
+        # Calculate totals
+        overage_credits = overage_summary.used if overage_summary else 0
+        total_available = subscription_credits_total + topup_credits_total
+
+        summary_totals = CreditsSummaryTotalsModel(
+            total_available=total_available,
+            subscription_credits=subscription_credits_total,
+            topup_credits=topup_credits_total,
+            overage_credits=overage_credits,
+        )
+
+        return CreditsSummaryModel(
+            subscription=subscription_summary,
+            overage=overage_summary,
+            topups=topups_summary,
+            summary=summary_totals,
+        )

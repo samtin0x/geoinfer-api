@@ -1,8 +1,8 @@
-"""Initial database schema
+"""initial_database_schema
 
-Revision ID: f157889e69f6
+Revision ID: 03964c23b6c4
 Revises:
-Create Date: 2025-09-23 20:08:27.297044
+Create Date: 2025-09-30 16:05:51.270012
 
 """
 
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = "f157889e69f6"
+revision = "03964c23b6c4"
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -24,6 +24,7 @@ def upgrade() -> None:
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("logo_url", sa.String(), nullable=True),
+        sa.Column("plan_tier", sa.String(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -46,10 +47,19 @@ def upgrade() -> None:
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("organization_id", sa.UUID(), nullable=False),
         sa.Column("stripe_subscription_id", sa.String(), nullable=True),
+        sa.Column("stripe_customer_id", sa.String(), nullable=True),
+        sa.Column("stripe_item_base_id", sa.String(), nullable=True),
+        sa.Column("stripe_item_overage_id", sa.String(), nullable=True),
+        sa.Column("stripe_price_base_id", sa.String(), nullable=True),
+        sa.Column("stripe_price_overage_id", sa.String(), nullable=True),
         sa.Column("description", sa.String(), nullable=False),
         sa.Column("price_paid", sa.Float(), nullable=False),
         sa.Column("monthly_allowance", sa.Integer(), nullable=False),
+        sa.Column("overage_unit_price", sa.Float(), nullable=False),
         sa.Column("status", sa.String(), nullable=False),
+        sa.Column("overage_enabled", sa.Boolean(), nullable=False),
+        sa.Column("user_extra_cap", sa.Integer(), nullable=True),
+        sa.Column("pause_access", sa.Boolean(), nullable=False),
         sa.Column("current_period_start", sa.DateTime(timezone=True), nullable=False),
         sa.Column("current_period_end", sa.DateTime(timezone=True), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
@@ -83,7 +93,6 @@ def upgrade() -> None:
         sa.Column("id", sa.UUID(), nullable=False, comment="Supabase Auth User ID"),
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("email", sa.String(), nullable=False),
-        sa.Column("plan_tier", sa.String(), nullable=False),
         sa.Column("organization_id", sa.UUID(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
@@ -96,13 +105,56 @@ def upgrade() -> None:
         sa.UniqueConstraint("email"),
     )
     op.create_table(
+        "alert_settings",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("subscription_id", sa.UUID(), nullable=False),
+        sa.Column("alert_thresholds", sa.JSON(), nullable=False),
+        sa.Column("alert_destinations", sa.JSON(), nullable=False),
+        sa.Column("alerts_enabled", sa.Boolean(), nullable=False),
+        sa.Column("locale", sa.String(), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["subscription_id"], ["subscriptions.id"], ondelete="CASCADE"
+        ),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_table(
+        "alerts",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("organization_id", sa.UUID(), nullable=False),
+        sa.Column("subscription_id", sa.UUID(), nullable=True),
+        sa.Column("alert_type", sa.String(), nullable=False),
+        sa.Column("alert_category", sa.String(), nullable=False),
+        sa.Column("threshold_percentage", sa.Float(), nullable=True),
+        sa.Column("alert_message", sa.String(), nullable=False),
+        sa.Column("severity", sa.String(), nullable=False),
+        sa.Column("locale", sa.String(), nullable=False),
+        sa.Column("triggered_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("sent_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("acknowledged_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("resolved_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["organization_id"], ["organizations.id"], ondelete="CASCADE"
+        ),
+        sa.ForeignKeyConstraint(
+            ["subscription_id"], ["subscriptions.id"], ondelete="CASCADE"
+        ),
+        sa.PrimaryKeyConstraint("id"),
+    )
+    op.create_table(
         "api_keys",
         sa.Column("id", sa.UUID(), nullable=False),
         sa.Column("name", sa.String(), nullable=False),
         sa.Column("key_hash", sa.String(), nullable=False),
+        sa.Column("organization_id", sa.UUID(), nullable=False),
         sa.Column("user_id", sa.UUID(), nullable=False),
         sa.Column("last_used_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(
+            ["organization_id"], ["organizations.id"], ondelete="CASCADE"
+        ),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
         sa.UniqueConstraint("key_hash"),
@@ -150,22 +202,19 @@ def upgrade() -> None:
         sa.UniqueConstraint("token"),
     )
     op.create_table(
-        "predictions",
+        "usage_periods",
         sa.Column("id", sa.UUID(), nullable=False),
-        sa.Column("user_id", sa.UUID(), nullable=False),
-        sa.Column("organization_id", sa.UUID(), nullable=True),
-        sa.Column("input_type", sa.Text(), nullable=False),
-        sa.Column("input_data", sa.Text(), nullable=False),
-        sa.Column("prediction_result", sa.Text(), nullable=True),
-        sa.Column("processing_time_ms", sa.Integer(), nullable=True),
-        sa.Column("status", sa.Text(), nullable=False),
-        sa.Column("error_message", sa.Text(), nullable=True),
+        sa.Column("subscription_id", sa.UUID(), nullable=False),
+        sa.Column("period_start", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("period_end", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("overage_used", sa.Integer(), nullable=False),
+        sa.Column("overage_reported", sa.Integer(), nullable=False),
+        sa.Column("closed", sa.Boolean(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
         sa.ForeignKeyConstraint(
-            ["organization_id"], ["organizations.id"], ondelete="SET NULL"
+            ["subscription_id"], ["subscriptions.id"], ondelete="CASCADE"
         ),
-        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_table(
@@ -186,16 +235,37 @@ def upgrade() -> None:
             "user_id", "organization_id", name="unique_user_org_single_role"
         ),
     )
+    op.create_table(
+        "predictions",
+        sa.Column("id", sa.UUID(), nullable=False),
+        sa.Column("user_id", sa.UUID(), nullable=True),
+        sa.Column("organization_id", sa.UUID(), nullable=False),
+        sa.Column("api_key_id", sa.UUID(), nullable=True),
+        sa.Column("processing_time_ms", sa.Integer(), nullable=True),
+        sa.Column("credits_consumed", sa.Integer(), nullable=True),
+        sa.Column("usage_type", sa.String(), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(["api_key_id"], ["api_keys.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(
+            ["organization_id"], ["organizations.id"], ondelete="CASCADE"
+        ),
+        sa.ForeignKeyConstraint(["user_id"], ["users.id"], ondelete="CASCADE"),
+        sa.PrimaryKeyConstraint("id"),
+    )
     # ### end Alembic commands ###
 
 
 def downgrade() -> None:
     # ### commands auto generated by Alembic - please adjust! ###
-    op.drop_table("user_organization_roles")
     op.drop_table("predictions")
+    op.drop_table("user_organization_roles")
+    op.drop_table("usage_periods")
     op.drop_table("invitations")
     op.drop_table("credit_grants")
     op.drop_table("api_keys")
+    op.drop_table("alerts")
+    op.drop_table("alert_settings")
     op.drop_table("users")
     op.drop_table("topups")
     op.drop_table("subscriptions")
