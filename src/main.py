@@ -13,7 +13,6 @@ from src.api.core.middleware.security import (
 )
 from src.api.router import api_router
 from src.database.connection import AsyncSessionLocal
-from src.modules.prediction.infrastructure.inference import load_geoclip_model
 from src.utils.settings.app import AppSettings
 from src.utils.logger import setup_logging
 
@@ -28,10 +27,6 @@ async def lifespan(app: FastAPI):
 
     logger = setup_logging(is_production)
     logger.info("Starting GeoInfer API...")
-
-    # Load GeoCLIP model at startup
-    await load_geoclip_model()
-    logger.info("GeoCLIP model loaded successfully")
 
     # Add session factory to app state
     app.state.session_factory = AsyncSessionLocal

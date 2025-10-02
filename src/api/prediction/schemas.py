@@ -1,8 +1,7 @@
 """Prediction API schemas (combined models/requests)."""
 
 from pydantic import BaseModel, HttpUrl
-from src.api.core.exceptions.responses import APIResponse
-from src.api.core.messages import APIResponse as CoreAPIResponse, Paginated
+from src.api.core.messages import APIResponse, Paginated
 
 
 class LocationInfo(BaseModel):
@@ -14,9 +13,13 @@ class LocationInfo(BaseModel):
     country_code: str  # ISO country code
 
 
-class CoordinatePrediction(BaseModel):
+class Coordinates(BaseModel):
+
     latitude: float
     longitude: float
+
+
+class CoordinatePrediction(Coordinates):
     confidence: float
     rank: int
     location: LocationInfo | None = None
@@ -92,4 +95,4 @@ class PredictionHistoryResponse(BaseModel):
 PredictionUrlResponse = APIResponse[PredictionResponse]
 PredictionUploadResponse = APIResponse[PredictionResponse]
 FreePredictionResponse = APIResponse[PredictionResult]
-PredictionHistoryPaginated = CoreAPIResponse[Paginated[PredictionHistoryRecord]]
+PredictionHistoryPaginated = APIResponse[Paginated[PredictionHistoryRecord]]

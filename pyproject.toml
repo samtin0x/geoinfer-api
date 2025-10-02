@@ -30,6 +30,7 @@ dependencies = [
     "aiocache>=0.12.3",
     "greenlet>=3.2.4",
     "email-normalize>=1.1.0",
+    "reverse_geocoder>=1.5.1",
 ]
 
 [project.optional-dependencies]
@@ -80,4 +81,25 @@ dev = [
     "types-stripe>=3.5.2.20240106",
 ]
 
+[tool.black]
+exclude = '''
+/(
+    \.git
+  | \.mypy_cache
+  | \.ruff_cache
+  | \.venv
+  | __pycache__
+  | gpu_server
+)/
+'''
+
+[tool.ruff]
+exclude = [
+    ".git",
+    ".mypy_cache",
+    ".ruff_cache",
+    ".venv",
+    "__pycache__",
+    "gpu_server",
+]
 

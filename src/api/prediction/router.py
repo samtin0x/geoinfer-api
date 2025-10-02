@@ -20,18 +20,19 @@ from src.api.core.decorators.cost import cost
 
 # No auth decorators needed - auth middleware sets request.state
 from src.api.core.decorators.rate_limit import rate_limit
-from src.api.core.exceptions.responses import APIResponse
 from src.api.core.dependencies import (
     AsyncSessionDep,
     CurrentUserAuthDep,
     GPUServerClientDep,
 )
-from src.api.core.messages import APIResponse as CoreAPIResponse
+from src.api.core.messages import APIResponse
 from src.api.prediction.schemas import (
     PredictionResult,
     PredictionResponse,
     PredictionUploadResponse,
     FreePredictionResponse,
+    LocationInfo,
+    Coordinates,
     PredictionHistoryPaginated,
 )
 from src.database.models import UsageType
@@ -42,8 +43,36 @@ from src.modules.prediction.application.use_cases import (
     PredictionHistoryService,
 )
 from src.redis.client import get_redis_client
+import reverse_geocoder as rg
 
 router = APIRouter(prefix="/prediction", tags=["prediction"])
+
+
+@router.post("/enrich-locations")
+async def enrich_locations(
+    coords: list[Coordinates],
+) -> APIResponse[list[LocationInfo | None]]:
+    if not coords:
+        return APIResponse.success(data=[])
+
+    tuples = [(float(c.latitude), float(c.longitude)) for c in coords]
+    results = rg.search(tuples)
+
+    payload: list[LocationInfo | None] = []
+    for place in results:
+        if not place:
+            payload.append(None)
+            continue
+        payload.append(
+            LocationInfo(
+                name=place.get("name", ""),
+                admin1=place.get("admin1", ""),
+                admin2=place.get("admin2", ""),
+                country_code=place.get("cc", ""),
+            )
+        )
+
+    return APIResponse.success(data=payload)
 
 
 @router.post("/predict", response_model=PredictionUploadResponse)
@@ -77,7 +106,7 @@ async def predict_location(
         usage_type=UsageType.GEOINFER_GLOBAL_0_0_1,
     )
 
-    return APIResponse.success_response(data=PredictionResponse(prediction=result))
+    return APIResponse.success(data=PredictionResponse(prediction=result))
 
 
 @router.post("/trial", response_model=FreePredictionResponse)
@@ -109,7 +138,7 @@ async def trial_prediction(
         save_to_db=False,  # Trial predictions are not saved to database
     )
 
-    return APIResponse.success_response(data=result)
+    return APIResponse.success(data=result)
 
 
 @router.get("/history", response_model=PredictionHistoryPaginated)
@@ -131,4 +160,4 @@ async def get_prediction_history(
         organization_id=current_user.organization.id, limit=limit, offset=offset
     )
 
-    return CoreAPIResponse.success(data=paginated_predictions)
+    return APIResponse.success(data=paginated_predictions)
