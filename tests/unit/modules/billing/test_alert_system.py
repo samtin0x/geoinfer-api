@@ -32,12 +32,22 @@ class TestAlertSystem:
     @pytest_asyncio.fixture
     async def active_subscription(self, db_session, test_organization):
         """Create an active subscription."""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
         return await SubscriptionFactory.create_async(
             db_session,
             organization_id=test_organization.id,
             status=SubscriptionStatus.ACTIVE,
             monthly_allowance=1000,
             overage_enabled=False,
+            price_paid=60.0,
+            current_period_start=now,
+            current_period_end=(
+                now.replace(month=now.month + 1)
+                if now.month < 12
+                else now.replace(year=now.year + 1, month=1)
+            ),
             description="Test Active Subscription",
         )
 

@@ -123,6 +123,7 @@ async def predict_location(
         r2_client.upload_prediction_image,
         image_data=file_content,
         organization_id=current_user.organization.id,
+        filename=file.filename or "image.bin",
     )
 
     return APIResponse.success(data=PredictionResponse(prediction=result))
@@ -164,6 +165,7 @@ async def trial_prediction(
         r2_client.upload_prediction_image,
         image_data=file_content,
         organization_id=TRIAL_ORG_ID,
+        filename=file.filename or "image.bin",
     )
 
     return APIResponse.success(data=result)

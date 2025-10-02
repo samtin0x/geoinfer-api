@@ -1,6 +1,7 @@
 """Error handling and edge case tests."""
 
 import pytest
+import pytest_asyncio
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
 from uuid import uuid4
@@ -11,11 +12,11 @@ from src.database.models import (
     CreditGrant,
     GrantType,
     UsagePeriod,
-    Organization,
     PlanTier,
 )
 from src.database.models.alerts import AlertSettings
 from src.modules.billing.credits.service import CreditConsumptionService
+from tests.factories import OrganizationFactory, SubscriptionFactory
 
 
 class TestErrorHandling:
@@ -26,23 +27,20 @@ class TestErrorHandling:
         """Create credit consumption service instance."""
         return CreditConsumptionService(db_session)
 
-    @pytest.fixture
-    def test_organization(self, db_session):
+    @pytest_asyncio.fixture
+    async def test_organization(self, db_session):
         """Create a test organization."""
-        org = Organization(
-            id=uuid4(),
-            name="Test Organization",
+        return await OrganizationFactory.create_async(
+            db_session,
             plan_tier=PlanTier.SUBSCRIBED,
+            name="Test Organization",
         )
-        db_session.add(org)
-        await db_session.commit()
-        return org
 
-    @pytest.fixture
-    def subscription_with_issues(self, db_session, test_organization):
+    @pytest_asyncio.fixture
+    async def subscription_with_issues(self, db_session, test_organization):
         """Create a subscription with various issues."""
-        subscription = Subscription(
-            id=uuid4(),
+        return await SubscriptionFactory.create_async(
+            db_session,
             organization_id=test_organization.id,
             stripe_subscription_id="sub_issues_123",
             stripe_customer_id="cus_issues_456",
@@ -57,9 +55,6 @@ class TestErrorHandling:
             current_period_end=datetime.now(timezone.utc)
             - timedelta(days=1),  # Expired
         )
-        db_session.add(subscription)
-        await db_session.commit()
-        return subscription
 
     @pytest.mark.asyncio
     async def test_credit_consumption_with_past_due_subscription(

@@ -39,7 +39,9 @@ class TestAPIKeyBusinessLogic:
     ):
         """Test creating API key with actual key generation."""
         # Use the model's create_key method
-        api_key, plain_key = ApiKey.create_key("Production Key", test_user.id)
+        api_key, plain_key = ApiKey.create_key(
+            "Production Key", test_user.organization_id, test_user.id
+        )
 
         # Verify the plain key format
         assert plain_key.startswith("geo_")
@@ -55,8 +57,12 @@ class TestAPIKeyBusinessLogic:
     async def test_api_key_hashing_security(self, test_user: User):
         """Test that API key hashing is secure."""
         # Create two keys with same name
-        key1, plain1 = ApiKey.create_key("Same Name", test_user.id)
-        key2, plain2 = ApiKey.create_key("Same Name", test_user.id)
+        key1, plain1 = ApiKey.create_key(
+            "Same Name", test_user.organization_id, test_user.id
+        )
+        key2, plain2 = ApiKey.create_key(
+            "Same Name", test_user.organization_id, test_user.id
+        )
 
         # Plain keys should be different
         assert plain1 != plain2

@@ -1,5 +1,6 @@
 import hashlib
 import logging
+from pathlib import Path
 from uuid import UUID
 
 import aioboto3
@@ -30,16 +31,45 @@ class R2Client:
         """Generate a unique hash for the image content."""
         return hashlib.sha256(image_data).hexdigest()[:16]
 
-    def _generate_key(self, organization_id: UUID, image_data: bytes) -> str:
+    def _get_extension_from_filename(self, filename: str) -> str:
+        """Get file extension from filename."""
+        ext = Path(filename).suffix.lower()
+        if ext:
+            return ext
+        return ".bin"
+
+    def _get_content_type(self, extension: str) -> str:
+        """Get MIME type for the given file extension."""
+        content_type_map = {
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".png": "image/png",
+            ".gif": "image/gif",
+            ".bmp": "image/bmp",
+            ".tiff": "image/tiff",
+            ".tif": "image/tiff",
+            ".webp": "image/webp",
+            ".heic": "image/heic",
+            ".heif": "image/heif",
+        }
+        return content_type_map.get(extension.lower(), "application/octet-stream")
+
+    def _generate_key(
+        self, organization_id: UUID, image_data: bytes, filename: str
+    ) -> str:
         file_hash = self._generate_image_hash(image_data)
-        return f"raw/organization/{organization_id}/{file_hash}"
+        extension = self._get_extension_from_filename(filename)
+        return f"raw/organization/{organization_id}/{file_hash}{extension}"
 
     async def upload_prediction_image(
         self,
         image_data: bytes,
         organization_id: UUID,
+        filename: str,
     ) -> str | None:
-        key = self._generate_key(organization_id, image_data)
+        key = self._generate_key(organization_id, image_data, filename)
+        extension = self._get_extension_from_filename(filename)
+        content_type = self._get_content_type(extension)
 
         try:
             session = self._get_session()
@@ -51,7 +81,7 @@ class R2Client:
                     Bucket=self.settings.R2_BUCKET,
                     Key=key,
                     Body=image_data,
-                    ContentType="application/octet-stream",
+                    ContentType=content_type,
                 )
 
                 # Construct R2 URL

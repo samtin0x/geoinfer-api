@@ -182,7 +182,7 @@ async def test_api_key_usage_excluded_from_user_analytics(db_session):
     # Create API key
     from src.database.models.api_keys import ApiKey
 
-    api_key = ApiKey.create_key("Service API Key", user.id)[0]
+    api_key = ApiKey.create_key("Service API Key", org.id, user.id)[0]
     db_session.add(api_key)
 
     await db_session.commit()
@@ -258,7 +258,7 @@ async def test_cost_decorator_creates_correct_usage_records(db_session):
     db_session.add(user)
 
     # Create API key for the user
-    api_key = ApiKey.create_key("Test API Key", user.id)[0]
+    api_key = ApiKey.create_key("Test API Key", org.id, user.id)[0]
     db_session.add(api_key)
 
     await db_session.commit()

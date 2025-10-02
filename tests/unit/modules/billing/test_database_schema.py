@@ -72,7 +72,8 @@ class TestDatabaseSchema:
         assert retrieved.overage_enabled is True
         assert retrieved.user_extra_cap == 500
 
-    def test_subscription_relationships(self, db_session, test_organization):
+    @pytest.mark.asyncio
+    async def test_subscription_relationships(self, db_session, test_organization):
         """Test subscription relationships work correctly."""
         # Create subscription
         subscription = Subscription(
@@ -154,7 +155,8 @@ class TestDatabaseSchema:
         retrieved_alert = db_session.get(Alert, alert.id)
         assert retrieved_alert.subscription.id == subscription.id
 
-    def test_credit_grant_model_creation(self, db_session, test_organization):
+    @pytest.mark.asyncio
+    async def test_credit_grant_model_creation(self, db_session, test_organization):
         """Test credit grant model can be created with all types."""
         # Test subscription grant
         subscription_grant = CreditGrant(
@@ -204,7 +206,8 @@ class TestDatabaseSchema:
         assert GrantType.TOPUP in grant_types
         assert GrantType.TRIAL in grant_types
 
-    def test_topup_model_creation(self, db_session, test_organization):
+    @pytest.mark.asyncio
+    async def test_topup_model_creation(self, db_session, test_organization):
         """Test topup model can be created correctly."""
         topup = TopUp(
             id=uuid4(),
@@ -227,7 +230,8 @@ class TestDatabaseSchema:
         assert retrieved.price_paid == 49.0
         assert retrieved.package_type == GrantType.TOPUP
 
-    def test_usage_period_model_creation(self, db_session, test_organization):
+    @pytest.mark.asyncio
+    async def test_usage_period_model_creation(self, db_session, test_organization):
         """Test usage period model can be created correctly."""
         subscription = Subscription(
             id=uuid4(),
@@ -263,7 +267,8 @@ class TestDatabaseSchema:
         assert retrieved.overage_reported == 0
         assert retrieved.closed is False
 
-    def test_usage_record_model_creation(self, db_session, test_organization):
+    @pytest.mark.asyncio
+    async def test_usage_record_model_creation(self, db_session, test_organization):
         """Test usage record model can be created correctly."""
         subscription = Subscription(
             id=uuid4(),
@@ -311,7 +316,8 @@ class TestDatabaseSchema:
         assert retrieved.subscription_id == subscription.id
         assert retrieved.operation_type == OperationType.CONSUMPTION
 
-    def test_alert_model_creation(self, db_session, test_organization):
+    @pytest.mark.asyncio
+    async def test_alert_model_creation(self, db_session, test_organization):
         """Test alert model can be created correctly."""
         subscription = Subscription(
             id=uuid4(),
@@ -351,7 +357,8 @@ class TestDatabaseSchema:
         assert retrieved.threshold_percentage == 0.8
         assert retrieved.severity == "warning"
 
-    def test_alert_settings_model_creation(self, db_session, test_organization):
+    @pytest.mark.asyncio
+    async def test_alert_settings_model_creation(self, db_session, test_organization):
         """Test alert settings model can be created correctly."""
         subscription = Subscription(
             id=uuid4(),
@@ -388,7 +395,8 @@ class TestDatabaseSchema:
         ]
         assert retrieved.alerts_enabled is True
 
-    def test_organization_plan_tier_enum(self, db_session):
+    @pytest.mark.asyncio
+    async def test_organization_plan_tier_enum(self, db_session):
         """Test organization plan tier enum values."""
         # Test all plan tiers can be created
         for plan_tier in PlanTier:
@@ -410,7 +418,8 @@ class TestDatabaseSchema:
         assert PlanTier.SUBSCRIBED in plan_tiers
         assert PlanTier.ENTERPRISE in plan_tiers
 
-    def test_subscription_status_enum(self, db_session, test_organization):
+    @pytest.mark.asyncio
+    async def test_subscription_status_enum(self, db_session, test_organization):
         """Test subscription status enum values."""
         # Test all subscription statuses can be created
         for status in SubscriptionStatus:
@@ -439,7 +448,8 @@ class TestDatabaseSchema:
         assert SubscriptionStatus.CANCELLED in statuses
         assert SubscriptionStatus.PAST_DUE in statuses
 
-    def test_grant_type_enum(self, db_session, test_organization):
+    @pytest.mark.asyncio
+    async def test_grant_type_enum(self, db_session, test_organization):
         """Test grant type enum values."""
         # Test all grant types can be created
         for grant_type in GrantType:
@@ -466,7 +476,8 @@ class TestDatabaseSchema:
         assert GrantType.TRIAL in grant_types
         assert GrantType.GEOINFER in grant_types
 
-    def test_cascade_deletion_subscription(self, db_session, test_organization):
+    @pytest.mark.asyncio
+    async def test_cascade_deletion_subscription(self, db_session, test_organization):
         """Test cascade deletion when subscription is deleted."""
         subscription = Subscription(
             id=uuid4(),
@@ -543,7 +554,8 @@ class TestDatabaseSchema:
         assert db_session.get(AlertSettings, alert_settings.id) is None
         assert db_session.get(Alert, alert.id) is None
 
-    def test_cascade_deletion_organization(self, db_session):
+    @pytest.mark.asyncio
+    async def test_cascade_deletion_organization(self, db_session):
         """Test cascade deletion when organization is deleted."""
         organization = Organization(
             id=uuid4(),
@@ -615,7 +627,8 @@ class TestDatabaseSchema:
         assert db_session.get(CreditGrant, credit_grant.id) is None
         assert db_session.get(Alert, alert.id) is None
 
-    def test_credit_grant_constraints(self, db_session, test_organization):
+    @pytest.mark.asyncio
+    async def test_credit_grant_constraints(self, db_session, test_organization):
         """Test credit grant constraints and validations."""
         # Test negative amount should fail (would be caught by database constraints)
         try:
@@ -636,7 +649,8 @@ class TestDatabaseSchema:
             # Expected - database constraints should prevent this
             db_session.rollback()
 
-    def test_subscription_unique_constraints(self, db_session, test_organization):
+    @pytest.mark.asyncio
+    async def test_subscription_unique_constraints(self, db_session, test_organization):
         """Test subscription unique constraints."""
         # Create first subscription
         subscription1 = Subscription(
@@ -676,7 +690,8 @@ class TestDatabaseSchema:
             # Expected - unique constraint should prevent this
             db_session.rollback()
 
-    def test_datetime_fields_timezone_aware(self, db_session, test_organization):
+    @pytest.mark.asyncio
+    async def test_datetime_fields_timezone_aware(self, db_session, test_organization):
         """Test that datetime fields are properly timezone-aware."""
         subscription = Subscription(
             id=uuid4(),

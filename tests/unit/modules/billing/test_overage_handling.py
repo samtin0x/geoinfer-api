@@ -1,6 +1,7 @@
 """Overage handling and billing tests."""
 
 import pytest
+import pytest_asyncio
 from datetime import datetime, timezone, timedelta
 from unittest.mock import MagicMock, patch
 from uuid import uuid4
@@ -8,14 +9,18 @@ from uuid import uuid4
 from src.database.models import (
     Subscription,
     SubscriptionStatus,
-    CreditGrant,
     GrantType,
     UsagePeriod,
-    Organization,
     PlanTier,
 )
 from src.database.models.alerts import AlertSettings
 from src.modules.billing.credits.service import CreditConsumptionService
+from tests.factories import (
+    OrganizationFactory,
+    SubscriptionFactory,
+    CreditGrantFactory,
+    UsagePeriodFactory,
+)
 
 
 class TestOverageHandling:
@@ -26,23 +31,20 @@ class TestOverageHandling:
         """Create credit consumption service instance."""
         return CreditConsumptionService(db_session)
 
-    @pytest.fixture
-    def test_organization(self, db_session):
+    @pytest_asyncio.fixture
+    async def test_organization(self, db_session):
         """Create a test organization."""
-        org = Organization(
-            id=uuid4(),
-            name="Test Organization",
+        return await OrganizationFactory.create_async(
+            db_session,
             plan_tier=PlanTier.SUBSCRIBED,
+            name="Test Organization",
         )
-        db_session.add(org)
-        await db_session.commit()
-        return org
 
-    @pytest.fixture
-    def subscription_with_overage(self, db_session, test_organization):
+    @pytest_asyncio.fixture
+    async def subscription_with_overage(self, db_session, test_organization):
         """Create a subscription with overage enabled."""
-        subscription = Subscription(
-            id=uuid4(),
+        return await SubscriptionFactory.create_async(
+            db_session,
             organization_id=test_organization.id,
             stripe_subscription_id="sub_test_123",
             stripe_customer_id="cus_test_456",
@@ -56,15 +58,12 @@ class TestOverageHandling:
             current_period_start=datetime.now(timezone.utc),
             current_period_end=datetime.now(timezone.utc) + timedelta(days=30),
         )
-        db_session.add(subscription)
-        await db_session.commit()
-        return subscription
 
-    @pytest.fixture
-    def subscription_credit_grant(self, db_session, subscription_with_overage):
+    @pytest_asyncio.fixture
+    async def subscription_credit_grant(self, db_session, subscription_with_overage):
         """Create a subscription credit grant."""
-        grant = CreditGrant(
-            id=uuid4(),
+        return await CreditGrantFactory.create_async(
+            db_session,
             organization_id=subscription_with_overage.organization_id,
             subscription_id=subscription_with_overage.id,
             grant_type=GrantType.SUBSCRIPTION,
@@ -73,15 +72,12 @@ class TestOverageHandling:
             remaining_amount=100,  # 900 already consumed
             expires_at=datetime.now(timezone.utc) + timedelta(days=30),
         )
-        db_session.add(grant)
-        await db_session.commit()
-        return grant
 
-    @pytest.fixture
-    def usage_period(self, db_session, subscription_with_overage):
+    @pytest_asyncio.fixture
+    async def usage_period(self, db_session, subscription_with_overage):
         """Create a usage period."""
-        period = UsagePeriod(
-            id=uuid4(),
+        return await UsagePeriodFactory.create_async(
+            db_session,
             subscription_id=subscription_with_overage.id,
             period_start=datetime.now(timezone.utc),
             period_end=datetime.now(timezone.utc) + timedelta(days=30),
@@ -89,9 +85,6 @@ class TestOverageHandling:
             overage_reported=50,
             closed=False,
         )
-        db_session.add(period)
-        await db_session.commit()
-        return period
 
     @pytest.mark.asyncio
     async def test_overage_consumption_within_cap(

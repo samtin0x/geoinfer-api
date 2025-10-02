@@ -159,7 +159,7 @@ def test_database_uri(worker_id):
                 )
 
 
-@pytest_asyncio.fixture(scope="session")
+@pytest_asyncio.fixture
 async def async_engine(test_database_uri):
     """Create async engine for the test database."""
     engine = create_async_engine(
@@ -322,7 +322,9 @@ async def test_member_user(
 @pytest_asyncio.fixture
 async def test_api_key(db_session: AsyncSession, test_user: User) -> tuple[ApiKey, str]:
     """Create a test API key for the test user."""
-    api_key, plain_key = ApiKey.create_key("Test API Key", test_user.id)
+    api_key, plain_key = ApiKey.create_key(
+        "Test API Key", test_user.organization_id, test_user.id
+    )
     db_session.add(api_key)
     await db_session.flush()
     return api_key, plain_key
