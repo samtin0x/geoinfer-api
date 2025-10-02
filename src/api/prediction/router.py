@@ -21,7 +21,11 @@ from src.api.core.decorators.cost import cost
 # No auth decorators needed - auth middleware sets request.state
 from src.api.core.decorators.rate_limit import rate_limit
 from src.api.core.exceptions.responses import APIResponse
-from src.api.core.dependencies import AsyncSessionDep, CurrentUserAuthDep
+from src.api.core.dependencies import (
+    AsyncSessionDep,
+    CurrentUserAuthDep,
+    GPUServerClientDep,
+)
 from src.api.core.messages import APIResponse as CoreAPIResponse
 from src.api.prediction.schemas import (
     PredictionResult,
@@ -52,6 +56,7 @@ async def predict_location(
     request: Request,
     db: AsyncSessionDep,
     current_user: CurrentUserAuthDep,
+    gpu_client: GPUServerClientDep,
     file: UploadFile = File(...),
     top_k: int = Query(default=DEFAULT_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K),
     redis_client: redis.Redis = Depends(get_redis_client),
@@ -64,6 +69,7 @@ async def predict_location(
         top_k=top_k,
         db=db,
         current_user=current_user,
+        gpu_client=gpu_client,
         input_filename=file.filename,
         save_to_db=True,
         credits_consumed=GLOBAL_MODEL_CREDIT_COST,
@@ -82,6 +88,7 @@ async def predict_location(
 async def trial_prediction(
     request: Request,
     db: AsyncSessionDep,
+    gpu_client: GPUServerClientDep,
     file: UploadFile = File(...),
     redis_client: redis.Redis = Depends(get_redis_client),
 ) -> APIResponse[PredictionResult]:
@@ -98,6 +105,7 @@ async def trial_prediction(
         request=request,
         image_data=file_content,
         top_k=1,
+        gpu_client=gpu_client,
         save_to_db=False,  # Trial predictions are not saved to database
     )
 

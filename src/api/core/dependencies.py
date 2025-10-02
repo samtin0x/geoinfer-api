@@ -20,6 +20,10 @@ from src.modules.organization.invitation import (
 from src.modules.user.onboarding import UserOnboardingService
 from src.modules.user.organization import UserOrganizationService
 from src.modules.analytics.service import AnalyticsService
+from src.modules.prediction.infrastructure.gpu_client import (
+    GPUServerClient,
+    get_gpu_client,
+)
 
 
 async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
@@ -99,6 +103,11 @@ async def get_user_organization_service(
     return UserOrganizationService(db)
 
 
+async def get_gpu_server_client() -> GPUServerClient:
+    """Get GPU server client."""
+    return await get_gpu_client()
+
+
 async def get_current_user_authenticated(request: Request) -> AuthenticatedUserContext:
     """Dependency to get current authenticated user with full context.
 
@@ -144,6 +153,7 @@ UserOrganizationServiceDep = Annotated[
 ]
 RateLimitServiceDep = Annotated[RateLimiter, Depends(get_rate_limit_service)]
 AnalyticsServiceDep = Annotated[AnalyticsService, Depends(get_analytics_service)]
+GPUServerClientDep = Annotated[GPUServerClient, Depends(get_gpu_server_client)]
 
 CurrentUserAuthDep = Annotated[
     AuthenticatedUserContext, Depends(get_current_user_authenticated)

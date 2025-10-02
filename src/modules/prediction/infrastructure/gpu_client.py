@@ -4,28 +4,27 @@ import logging
 from typing import Any
 
 import aiohttp
-from pydantic import BaseModel
 
-from src.api.prediction.schemas import CoordinatePrediction, LocationInfo, PredictionResult
+from src.api.prediction.schemas import (
+    CoordinatePrediction,
+    LocationInfo,
+    PredictionResult,
+)
+from src.utils.settings.gpu import gpu_settings
+
 
 logger = logging.getLogger(__name__)
-
-
-class GPUServerConfig(BaseModel):
-    """Configuration for GPU server connection."""
-
-    url: str = "http://localhost:8000"
-    username: str = "admin"
-    password: str = "admin"
-    timeout: int = 60
 
 
 class GPUServerClient:
     """Client for making prediction requests to the remote GPU server."""
 
-    def __init__(self, config: GPUServerConfig):
-        self.config = config
-        self.auth = aiohttp.BasicAuth(config.username, config.password)
+    def __init__(self):
+        self.url = gpu_settings.GPU_SERVER_URL
+        self.timeout = gpu_settings.GPU_SERVER_TIMEOUT
+        self.auth = aiohttp.BasicAuth(
+            gpu_settings.GPU_SERVER_USERNAME, gpu_settings.GPU_SERVER_PASSWORD
+        )
 
     async def predict_from_bytes(
         self, image_data: bytes, top_k: int = 5
@@ -33,15 +32,17 @@ class GPUServerClient:
         """Send image bytes to GPU server for prediction."""
         async with aiohttp.ClientSession() as session:
             form_data = aiohttp.FormData()
-            form_data.add_field("file", image_data, filename="image.jpg", content_type="image/jpeg")
+            form_data.add_field(
+                "file", image_data, filename="image.jpg", content_type="image/jpeg"
+            )
 
             try:
                 async with session.post(
-                    f"{self.config.url}/predict",
+                    f"{self.url}/predict",
                     data=form_data,
                     params={"top_k": top_k},
                     auth=self.auth,
-                    timeout=aiohttp.ClientTimeout(total=self.config.timeout),
+                    timeout=aiohttp.ClientTimeout(total=self.timeout),
                 ) as response:
                     response.raise_for_status()
                     data = await response.json()
@@ -88,23 +89,6 @@ class GPUServerClient:
         )
 
 
-# Global GPU client instance
-_gpu_client: GPUServerClient | None = None
-
-
-def get_gpu_client() -> GPUServerClient:
-    """Get or create GPU server client."""
-    global _gpu_client
-    if _gpu_client is None:
-        import os
-
-        config = GPUServerConfig(
-            url=os.getenv("GPU_SERVER_URL", "http://localhost:8000"),
-            username=os.getenv("GPU_SERVER_USERNAME", "admin"),
-            password=os.getenv("GPU_SERVER_PASSWORD", "admin"),
-            timeout=int(os.getenv("GPU_SERVER_TIMEOUT", "60")),
-        )
-        _gpu_client = GPUServerClient(config)
-        logger.info(f"GPU server client initialized: {config.url}")
-    return _gpu_client
-
+async def get_gpu_client() -> GPUServerClient:
+    """Get GPU server client for dependency injection."""
+    return GPUServerClient()

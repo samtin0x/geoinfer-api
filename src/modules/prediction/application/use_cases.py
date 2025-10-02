@@ -1,17 +1,10 @@
-import asyncio
 import logging
-import os
-import tempfile
 import time
-from io import BytesIO
+import uuid
 from uuid import UUID
 
-import aiohttp
 import numpy as np
-import torch
 from fastapi import Request, status
-from PIL import Image, UnidentifiedImageError
-import pillow_heif  # type: ignore
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,7 +12,6 @@ from src.api.core.exceptions.base import GeoInferException
 from src.api.core.messages import MessageCode, Paginated, PaginationInfo
 from src.core.context import AuthenticatedUserContext
 from src.api.prediction.schemas import (
-    CoordinatePrediction,
     PredictionResult,
     PredictionHistoryRecord,
 )
@@ -28,185 +20,15 @@ from src.database.models.predictions import Prediction
 from src.database.models.users import User
 from src.database.models.api_keys import ApiKey
 from src.database.models.usage import UsageType
-import uuid
-from src.modules.prediction.infrastructure.inference import (
-    get_model,
-    normalize_confidences,
-    get_location_info,
-)
+from src.modules.prediction.infrastructure.gpu_client import GPUServerClient
 
 logger = logging.getLogger(__name__)
-
-pillow_heif.register_heif_opener()
-
-torch.set_num_threads(torch.get_num_threads())
-
-
-async def download_image(image_url: str) -> Image.Image:
-    """Download and open an image from a URL."""
-    async with aiohttp.ClientSession() as session:
-        async with session.get(image_url) as response:
-            if response.status != 200:
-                raise GeoInferException(
-                    MessageCode.EXTERNAL_SERVICE_ERROR,
-                    status.HTTP_400_BAD_REQUEST,
-                    details={
-                        "description": f"Failed to download image: HTTP {response.status}"
-                    },
-                )
-
-            content_type = response.headers.get("content-type", "")
-            if not content_type.startswith("image/"):
-                raise GeoInferException(
-                    MessageCode.INVALID_FILE_TYPE,
-                    status.HTTP_400_BAD_REQUEST,
-                    details={"description": f"Invalid content type: {content_type}"},
-                )
-
-            image_data = await response.read()
-
-            try:
-                image = Image.open(BytesIO(image_data))
-            except UnidentifiedImageError as e:
-                logger.error(f"Cannot identify downloaded image format: {e}")
-                raise GeoInferException(
-                    MessageCode.IMAGE_PROCESSING_ERROR,
-                    status.HTTP_400_BAD_REQUEST,
-                    details={
-                        "description": "Cannot identify image format from URL. Please ensure the URL points to a valid image file."
-                    },
-                )
-
-            # Convert to RGB if necessary
-            if image.mode != "RGB":
-                image = image.convert("RGB")
-
-            return image
-
-
-async def predict_coordinates_from_url(
-    image_url: str, top_k: int = 5
-) -> PredictionResult:
-    """
-    Predict GPS coordinates from an image URL.
-
-    Returns:
-        PredictionResult with multiple predictions and timing info
-    """
-    start_time = time.time()
-
-    try:
-        # Download image
-        image = await download_image(image_url)
-
-        # Save to temporary file for GeoCLIP (it expects file paths)
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_file:
-            image.save(temp_file, format="JPEG")
-            temp_path = temp_file.name
-
-        try:
-            # Run prediction in thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
-
-            # Get the model using lazy loading
-            model = get_model()
-
-            gps_predictions, probabilities = await loop.run_in_executor(
-                None, model.predict, temp_path, top_k
-            )
-
-            # Normalize raw scores to probabilities using softmax
-            raw_scores = [float(prob) for prob in probabilities]
-            normalized_probs = normalize_confidences(raw_scores)
-
-            # Convert to our format
-            predictions = []
-            for i, (coords, norm_prob) in enumerate(
-                zip(gps_predictions, normalized_probs)
-            ):
-                lat, lon = coords
-                location = get_location_info(float(lat), float(lon))
-                predictions.append(
-                    CoordinatePrediction(
-                        latitude=float(lat),
-                        longitude=float(lon),
-                        confidence=norm_prob,
-                        rank=i + 1,
-                        location=location,
-                    )
-                )
-
-            processing_time_ms = int((time.time() - start_time) * 1000)
-
-            # Create result with top prediction for convenience
-            return PredictionResult(
-                predictions=predictions,
-                processing_time_ms=processing_time_ms,
-                top_prediction=predictions[0] if predictions else None,
-            )
-
-        finally:
-            # Clean up temporary file
-            try:
-                os.unlink(temp_path)
-            except OSError:
-                pass
-
-    except Exception as e:
-        logger.error(f"Error predicting coordinates from URL {image_url}: {e}")
-        raise
-
-
-async def predict_coordinates_from_file(
-    request: Request, image_path: str, top_k: int = 5
-) -> PredictionResult:
-    """
-    Predict GPS coordinates from a local image file.
-
-    Returns:
-        PredictionResult with multiple predictions and timing info
-    """
-    start_time = time.time()
-
-    try:
-        loop = asyncio.get_event_loop()
-
-        # Get the model using lazy loading
-        model = get_model()
-
-        gps_predictions, probabilities = await loop.run_in_executor(
-            None, model.predict, image_path, top_k
-        )
-
-        # Convert to our format
-        predictions = []
-        for i, (coords, prob) in enumerate(zip(gps_predictions, probabilities)):
-            lat, lon = coords
-            predictions.append(
-                CoordinatePrediction(
-                    latitude=float(lat),
-                    longitude=float(lon),
-                    confidence=float(prob),
-                    rank=i + 1,
-                )
-            )
-
-        processing_time_ms = int((time.time() - start_time) * 1000)
-
-        return PredictionResult(
-            predictions=predictions,
-            processing_time_ms=processing_time_ms,
-            top_prediction=predictions[0] if predictions else None,
-        )
-
-    except Exception as e:
-        logger.error(f"Error predicting coordinates from file {image_path}: {e}")
-        raise
 
 
 async def predict_coordinates_from_upload(
     request: Request,
     image_data: bytes,
+    gpu_client: GPUServerClient,
     top_k: int = 5,
     db: AsyncSession | None = None,
     current_user: AuthenticatedUserContext | None = None,
@@ -216,11 +38,12 @@ async def predict_coordinates_from_upload(
     usage_type: UsageType | None = None,
 ) -> PredictionResult:
     """
-    Predict GPS coordinates from uploaded image data.
+    Predict GPS coordinates from uploaded image data via GPU server.
 
     Args:
         request: FastAPI request object
         image_data: Image bytes to process
+        gpu_client: GPU server client instance
         top_k: Number of top predictions to return
         db: Database session (required if save_to_db=True)
         current_user: Current authenticated user (required if save_to_db=True)
@@ -241,100 +64,32 @@ async def predict_coordinates_from_upload(
         )
 
     try:
-        # Convert bytes to PIL Image
-        image_io = BytesIO(image_data)
-        image = Image.open(image_io)
+        # Call GPU server for prediction
+        result = await gpu_client.predict_from_bytes(image_data, top_k=top_k)
 
-        # Convert to RGB if necessary
-        if image.mode != "RGB":
-            image = image.convert("RGB")
+        processing_time_ms = int((time.time() - start_time) * 1000)
 
-        # Save to temporary file for GeoCLIP
-        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as temp_file:
-            image.save(temp_file, format="JPEG")
-            temp_path = temp_file.name
-
-        try:
-            # Run prediction in thread pool to avoid blocking
-            loop = asyncio.get_event_loop()
-
-            # Get the model using lazy loading
-            model = get_model()
-
-            gps_predictions, probabilities = await loop.run_in_executor(
-                None, model.predict, temp_path, top_k
-            )
-
-            # Normalize raw scores to probabilities using softmax
-            raw_scores = [float(prob) for prob in probabilities]
-            normalized_probs = normalize_confidences(raw_scores)
-
-            # Convert to our format
-            predictions = []
-            for i, (coords, norm_prob) in enumerate(
-                zip(gps_predictions, normalized_probs)
-            ):
-                lat, lon = coords
-                location = get_location_info(float(lat), float(lon))
-                predictions.append(
-                    CoordinatePrediction(
-                        latitude=float(lat),
-                        longitude=float(lon),
-                        confidence=norm_prob,
-                        rank=i + 1,
-                        location=location,
-                    )
-                )
-
-            processing_time_ms = int((time.time() - start_time) * 1000)
-
-            result = PredictionResult(
-                predictions=predictions,
+        # Save to database if requested and we have the required parameters
+        if save_to_db and db is not None and current_user is not None:
+            await save_prediction_to_db(
+                db=db,
+                user_id=current_user.user.id,
+                organization_id=current_user.organization.id,
+                api_key_id=(current_user.api_key.id if current_user.api_key else None),
                 processing_time_ms=processing_time_ms,
-                top_prediction=predictions[0] if predictions else None,
+                credits_consumed=credits_consumed,
+                usage_type=usage_type or UsageType.GEOINFER_GLOBAL_0_0_1,
             )
 
-            # Save to database if requested and we have the required parameters
-            if save_to_db and db is not None and current_user is not None:
-                await save_prediction_to_db(
-                    db=db,
-                    user_id=current_user.user.id,
-                    organization_id=current_user.organization.id,
-                    api_key_id=(
-                        current_user.api_key.id if current_user.api_key else None
-                    ),
-                    processing_time_ms=processing_time_ms,
-                    credits_consumed=credits_consumed,
-                    usage_type=usage_type or UsageType.GEOINFER_GLOBAL_0_0_1,
-                )
+        return result
 
-            return result
-
-        finally:
-            # Clean up temporary file
-            try:
-                os.unlink(temp_path)
-            except OSError:
-                pass
-
-    except UnidentifiedImageError as e:
-        logger.error(f"Cannot identify image format: {e}")
+    except RuntimeError as e:
+        # GPU server unavailable
+        logger.error(f"GPU server error: {e}")
         raise GeoInferException(
-            MessageCode.IMAGE_PROCESSING_ERROR,
-            status.HTTP_400_BAD_REQUEST,
-            details={
-                "description": "Cannot identify image format. Please ensure you're uploading a valid image file (JPEG, PNG, etc.)"
-            },
-        )
-    except (OSError, IOError) as e:
-        # Handle PIL image processing errors (corrupted files, truncated files, etc.)
-        logger.error(f"Image processing error: {e}")
-        raise GeoInferException(
-            MessageCode.IMAGE_PROCESSING_ERROR,
-            status.HTTP_400_BAD_REQUEST,
-            details={
-                "description": "Error processing image file. The image may be corrupted or in an unsupported format."
-            },
+            MessageCode.EXTERNAL_SERVICE_ERROR,
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            details={"description": "Prediction service temporarily unavailable"},
         )
     except Exception as e:
         logger.error(f"Error predicting coordinates from uploaded image: {e}")
