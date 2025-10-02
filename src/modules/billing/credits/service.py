@@ -1,13 +1,23 @@
 """Credit consumption service for handling credit consumption logic."""
 
 import asyncio
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List
 from uuid import UUID
 
-from sqlalchemy import select, func, and_, not_
+from sqlalchemy import select, func, and_, not_, or_
 
-
+from src.api.core.constants import (
+    FREE_TRIAL_SIGNUP_CREDIT_AMOUNT,
+    TRIAL_CREDIT_EXPIRY_DAYS,
+)
+from src.api.credits.schemas import (
+    CreditsSummaryModel,
+    SubscriptionCreditsSummaryModel,
+    OverageSummaryModel,
+    TopupCreditSummaryModel,
+    CreditsSummaryTotalsModel,
+)
 from src.database.models import (
     Subscription,
     SubscriptionStatus,
@@ -17,6 +27,7 @@ from src.database.models import (
     UsageRecord,
     UsageType,
     OperationType,
+    TopUp,
 )
 from src.database.models.alerts import AlertSettings, Alert
 from src.core.base import BaseService
@@ -117,8 +128,14 @@ class CreditConsumptionService(BaseService):
             if subscription.overage_enabled:
                 # Check if we've reached the cap
                 effective_cap = self._calculate_effective_cap(subscription)
-                if usage_period.overage_used + remaining_needed > effective_cap:
-                    return False, f"Overage cap of {effective_cap} credits exceeded"
+                if (
+                    effective_cap != float("inf")
+                    and usage_period.overage_used + remaining_needed > effective_cap
+                ):
+                    return (
+                        False,
+                        f"Overage cap of {int(effective_cap)} credits exceeded",
+                    )
 
                 # Record overage usage (no usage record created since overage isn't a grant)
                 usage_period.overage_used += remaining_needed
@@ -146,12 +163,17 @@ class CreditConsumptionService(BaseService):
         return True, "Credits consumed successfully"
 
     async def _get_active_subscription(self, organization_id: UUID):
-        """Get the active subscription for an organization."""
-        stmt = select(Subscription).where(
-            and_(
-                Subscription.organization_id == organization_id,
-                Subscription.status == SubscriptionStatus.ACTIVE,
+        """Get the active subscription for an organization (most recent if multiple exist)."""
+        stmt = (
+            select(Subscription)
+            .where(
+                and_(
+                    Subscription.organization_id == organization_id,
+                    Subscription.status == SubscriptionStatus.ACTIVE,
+                )
             )
+            .order_by(Subscription.created_at.desc())
+            .limit(1)
         )
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
@@ -167,6 +189,7 @@ class CreditConsumptionService(BaseService):
                 )
             )
             .order_by(UsagePeriod.created_at.desc())
+            .limit(1)
         )
         result = await self.db.execute(stmt)
         period = result.scalar_one_or_none()
@@ -187,6 +210,7 @@ class CreditConsumptionService(BaseService):
                 )
             )
             .order_by(UsagePeriod.created_at.desc())
+            .limit(1)
         )
 
         alert_settings_stmt = select(AlertSettings).where(
@@ -241,27 +265,15 @@ class CreditConsumptionService(BaseService):
         result = await self.db.execute(stmt)
         return result.scalars().all()
 
-    def _calculate_effective_cap(self, subscription) -> int:
+    def _calculate_effective_cap(self, subscription: Subscription) -> int | float:
         """Calculate the effective overage cap for a subscription."""
-        # TODO: Get overage config from organization settings
-        overage_config = {
-            "enabled": False,  # Default: no overage
-            "max_amount": 5000,  # Default max overage
-            "unit_price": 0.06,
-        }
+        if not subscription.overage_enabled:
+            return 0
 
-        user_cap = subscription.user_extra_cap
+        if subscription.user_extra_cap is None:
+            return float("inf")  # Unlimited overage
 
-        if not overage_config["enabled"]:
-            return 0  # Overage disabled
-
-        if user_cap is None:
-            return int(overage_config["max_amount"] or 0)  # Use configured max or 0
-
-        if overage_config["max_amount"] is None:
-            return int(user_cap)  # No max limit, use user cap
-
-        return int(min(user_cap, overage_config["max_amount"]))
+        return int(subscription.user_extra_cap)
 
     async def _record_credit_consumption(
         self,
@@ -395,4 +407,327 @@ class CreditConsumptionService(BaseService):
         self.logger.info(
             "Alert triggered, email notifications not yet implemented",
             organization_id=str(organization_id),
+        )
+
+    async def grant_trial_credits_to_user(
+        self,
+        organization_id: UUID,
+        user_id: UUID,
+    ) -> bool:
+        """Grant trial credits to a new user."""
+        trial_topup_stmt = select(TopUp).where(
+            TopUp.organization_id == organization_id,
+            TopUp.stripe_payment_intent_id.is_(None),
+        )
+        trial_topup_result = await self.db.execute(trial_topup_stmt)
+        trial_topups = trial_topup_result.scalars().all()
+
+        for topup in trial_topups:
+            if topup.package_type == GrantType.TRIAL:
+                self.logger.info(f"User {user_id} already has trial credits")
+                return True
+
+        trial_expiry = datetime.now(timezone.utc) + timedelta(
+            days=TRIAL_CREDIT_EXPIRY_DAYS
+        )
+
+        trial_topup = TopUp(
+            organization_id=organization_id,
+            credits_purchased=FREE_TRIAL_SIGNUP_CREDIT_AMOUNT,
+            description="Geoinfer Trial Credits",
+            stripe_payment_intent_id=None,
+            price_paid=0.0,
+            package_type=GrantType.TRIAL,
+            expires_at=trial_expiry,
+        )
+
+        self.db.add(trial_topup)
+        await self.db.flush()
+
+        credit_grant = CreditGrant(
+            organization_id=organization_id,
+            topup_id=trial_topup.id,
+            grant_type=GrantType.TRIAL,
+            description="Geoinfer Trial Credits",
+            amount=FREE_TRIAL_SIGNUP_CREDIT_AMOUNT,
+            remaining_amount=FREE_TRIAL_SIGNUP_CREDIT_AMOUNT,
+            expires_at=trial_expiry,
+        )
+
+        self.db.add(credit_grant)
+        await self.db.commit()
+
+        self.logger.info(
+            f"Granted {FREE_TRIAL_SIGNUP_CREDIT_AMOUNT} trial credits to user {user_id} (organization {organization_id})"
+        )
+        return True
+
+    async def get_usage_history(
+        self, organization_id: UUID, limit: int = 50, offset: int = 0
+    ) -> tuple[list[dict], int]:
+        """Get organization's credit consumption history from usage_records table."""
+        stmt = (
+            select(
+                UsageRecord,
+                Subscription.description.label("subscription_description"),
+                TopUp.description.label("topup_description"),
+            )
+            .outerjoin(Subscription, UsageRecord.subscription_id == Subscription.id)
+            .outerjoin(TopUp, UsageRecord.topup_id == TopUp.id)
+            .where(UsageRecord.organization_id == organization_id)
+            .order_by(UsageRecord.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        result = await self.db.execute(stmt)
+        records = result.all()
+
+        count_result = await self.db.execute(
+            select(func.count(UsageRecord.id)).where(
+                UsageRecord.organization_id == organization_id
+            )
+        )
+        total_records = count_result.scalar() or 0
+
+        records_data = [
+            {
+                "id": str(row.UsageRecord.id),
+                "credits_consumed": abs(row.UsageRecord.credits_consumed),
+                "api_key_id": (
+                    str(row.UsageRecord.api_key_id)
+                    if row.UsageRecord.api_key_id
+                    else None
+                ),
+                "organization_id": str(row.UsageRecord.organization_id),
+                "subscription_id": (
+                    str(row.UsageRecord.subscription_id)
+                    if row.UsageRecord.subscription_id
+                    else None
+                ),
+                "topup_id": (
+                    str(row.UsageRecord.topup_id) if row.UsageRecord.topup_id else None
+                ),
+                "description": row.topup_description or row.subscription_description,
+                "created_at": row.UsageRecord.created_at.isoformat(),
+            }
+            for row in records
+        ]
+
+        return records_data, total_records
+
+    async def get_credit_grants_history(
+        self, organization_id: UUID, limit: int = 50, offset: int = 0
+    ) -> tuple[list[dict], int]:
+        """Get organization's credit grants history with pagination."""
+        total_result = await self.db.execute(
+            select(func.count(CreditGrant.id)).where(
+                CreditGrant.organization_id == organization_id
+            )
+        )
+        total_grants = total_result.scalar() or 0
+
+        result = await self.db.execute(
+            select(CreditGrant)
+            .where(CreditGrant.organization_id == organization_id)
+            .order_by(CreditGrant.created_at.desc())
+            .limit(limit)
+            .offset(offset)
+        )
+        grants = result.scalars().all()
+
+        grants_records = [
+            {
+                "id": str(grant.id),
+                "grant_type": grant.grant_type,
+                "description": grant.description,
+                "amount": grant.amount,
+                "remaining_amount": grant.remaining_amount,
+                "expires_at": (
+                    grant.expires_at.isoformat() if grant.expires_at else None
+                ),
+                "subscription_id": (
+                    str(grant.subscription_id) if grant.subscription_id else None
+                ),
+                "topup_id": (str(grant.topup_id) if grant.topup_id else None),
+                "created_at": grant.created_at.isoformat(),
+            }
+            for grant in grants
+        ]
+
+        return grants_records, total_grants
+
+    async def get_credits_summary(self, organization_id: UUID) -> CreditsSummaryModel:
+        """Get detailed credits breakdown including subscription, topups, and overage."""
+        subscription_stmt = (
+            select(Subscription)
+            .where(
+                and_(
+                    Subscription.organization_id == organization_id,
+                    Subscription.status == SubscriptionStatus.ACTIVE,
+                )
+            )
+            .order_by(Subscription.created_at.desc())
+            .limit(1)
+        )
+        subscription_result = await self.db.execute(subscription_stmt)
+        subscription = subscription_result.scalar_one_or_none()
+
+        subscription_summary = None
+        overage_summary = None
+        subscription_credits_total = 0
+
+        if subscription:
+            sub_grants_stmt = select(CreditGrant).where(
+                and_(
+                    CreditGrant.subscription_id == subscription.id,
+                    CreditGrant.grant_type == GrantType.SUBSCRIPTION,
+                    CreditGrant.expires_at > datetime.now(timezone.utc),
+                )
+            )
+            sub_grants_result = await self.db.execute(sub_grants_stmt)
+            sub_grants = sub_grants_result.scalars().all()
+
+            granted_this_period = sum(grant.amount for grant in sub_grants)
+            remaining = sum(grant.remaining_amount for grant in sub_grants)
+            subscription_credits_total = remaining
+
+            usage_records_stmt = select(
+                func.coalesce(func.sum(UsageRecord.credits_consumed), 0)
+            ).where(
+                and_(
+                    UsageRecord.organization_id == organization_id,
+                    UsageRecord.subscription_id == subscription.id,
+                    UsageRecord.subscription_id.isnot(None),
+                    UsageRecord.created_at >= subscription.current_period_start,
+                    UsageRecord.created_at <= subscription.current_period_end,
+                    UsageRecord.operation_type == OperationType.CONSUMPTION,
+                )
+            )
+            usage_records_result = await self.db.execute(usage_records_stmt)
+            used_this_period = usage_records_result.scalar() or 0
+
+            billing_interval = "monthly"
+            if subscription.stripe_price_base_id:
+                from src.modules.billing.constants import SUBSCRIPTION_PACKAGES
+
+                for package_key, package_info in SUBSCRIPTION_PACKAGES.items():
+                    if package_info.base_price_id == subscription.stripe_price_base_id:
+                        package_name = (
+                            package_key.value
+                            if hasattr(package_key, "value")
+                            else str(package_key)
+                        )
+                        billing_interval = (
+                            "yearly" if "YEARLY" in package_name.upper() else "monthly"
+                        )
+                        break
+
+            subscription_summary = SubscriptionCreditsSummaryModel(
+                id=str(subscription.id),
+                monthly_allowance=subscription.monthly_allowance,
+                granted_this_period=granted_this_period,
+                used_this_period=used_this_period,
+                remaining=remaining,
+                period_start=subscription.current_period_start,
+                period_end=subscription.current_period_end,
+                status=subscription.status,
+                billing_interval=billing_interval,
+                price_paid=subscription.price_paid,
+                overage_unit_price=float(subscription.overage_unit_price),
+                cancel_at_period_end=subscription.cancel_at_period_end,
+                pause_access=subscription.pause_access,
+            )
+
+            usage_period_stmt = (
+                select(UsagePeriod)
+                .where(
+                    and_(
+                        UsagePeriod.subscription_id == subscription.id,
+                        not_(UsagePeriod.closed),
+                    )
+                )
+                .order_by(UsagePeriod.created_at.desc())
+                .limit(1)
+            )
+            usage_period_result = await self.db.execute(usage_period_stmt)
+            usage_period = usage_period_result.scalar_one_or_none()
+
+            if usage_period:
+                if not subscription.overage_enabled:
+                    effective_cap: int | None = 0
+                    remaining_until_cap: int | None = 0
+                else:
+                    effective_cap = (
+                        subscription.user_extra_cap
+                        if subscription.user_extra_cap is not None
+                        else None
+                    )
+                    remaining_until_cap = (
+                        (effective_cap - usage_period.overage_used)
+                        if effective_cap is not None
+                        else None
+                    )
+
+                overage_summary = OverageSummaryModel(
+                    enabled=subscription.overage_enabled,
+                    used=usage_period.overage_used,
+                    reported_to_stripe=usage_period.overage_reported,
+                    cap=effective_cap,
+                    remaining_until_cap=remaining_until_cap,
+                    unit_price=subscription.overage_unit_price,
+                )
+
+        topup_grants_stmt = (
+            select(CreditGrant, TopUp)
+            .join(TopUp, CreditGrant.topup_id == TopUp.id)
+            .where(
+                and_(
+                    CreditGrant.organization_id == organization_id,
+                    CreditGrant.grant_type.in_([GrantType.TOPUP, GrantType.TRIAL]),
+                    CreditGrant.remaining_amount > 0,
+                    or_(
+                        CreditGrant.expires_at.is_(None),
+                        CreditGrant.expires_at > datetime.now(timezone.utc),
+                    ),
+                )
+            )
+            .order_by(CreditGrant.expires_at.asc().nulls_last())
+        )
+        topup_result = await self.db.execute(topup_grants_stmt)
+        topup_data = topup_result.all()
+
+        topups_summary = []
+        topup_credits_total = 0
+
+        for grant, topup in topup_data:
+            used = grant.amount - grant.remaining_amount
+            topup_credits_total += grant.remaining_amount
+
+            topups_summary.append(
+                TopupCreditSummaryModel(
+                    id=str(grant.id),
+                    name=grant.description,
+                    granted=grant.amount,
+                    used=used,
+                    remaining=grant.remaining_amount,
+                    expires_at=grant.expires_at,
+                    purchased_at=topup.created_at,
+                )
+            )
+
+        overage_credits = overage_summary.used if overage_summary else 0
+        total_available = subscription_credits_total + topup_credits_total
+
+        summary_totals = CreditsSummaryTotalsModel(
+            total_available=total_available,
+            subscription_credits=subscription_credits_total,
+            topup_credits=topup_credits_total,
+            overage_credits=overage_credits,
+        )
+
+        return CreditsSummaryModel(
+            subscription=subscription_summary,
+            overage=overage_summary,
+            topups=topups_summary,
+            summary=summary_totals,
         )

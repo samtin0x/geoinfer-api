@@ -12,7 +12,7 @@ from src.api.core.constants import GEO_API_KEY_PREFIX
 from src.api.core.exceptions.base import GeoInferException
 from src.api.core.messages import MessageCode
 from src.database.models import ApiKey, User
-from src.cache import cached
+from src.cache import cached, invalidate_user_cache
 from src.core.base import BaseService
 from src.utils.hashing import HashingService
 
@@ -74,11 +74,22 @@ class ApiKeyManagementService(BaseService):
         return list(result.scalars().all())
 
     async def delete_api_key(self, api_key_id: UUID, organization_id: UUID) -> bool:
+        # Get the API key before deleting to invalidate its cache
+        api_key = await self.get_api_key(api_key_id, organization_id)
+
         stmt = delete(ApiKey).where(
             ApiKey.id == api_key_id, ApiKey.organization_id == organization_id
         )
         result = await self.db.execute(stmt)
         await self.db.commit()
+
+        # Invalidate cache for the user who owned this key
+        if result.rowcount > 0 and api_key:
+            await invalidate_user_cache(api_key.user_id)
+            self.logger.info(
+                f"Deleted API key {api_key_id} and invalidated cache for user {api_key.user_id}"
+            )
+
         return result.rowcount > 0
 
     async def regenerate_api_key(
@@ -105,6 +116,11 @@ class ApiKeyManagementService(BaseService):
         await self.db.commit()
         updated_key = result.scalar_one_or_none()
         if updated_key:
+            # Invalidate cache for the user who owns this key
+            await invalidate_user_cache(updated_key.user_id)
+            self.logger.info(
+                f"Regenerated API key {api_key_id} and invalidated cache for user {updated_key.user_id}"
+            )
             return updated_key, plain_key
         raise GeoInferException(
             MessageCode.API_KEY_NOT_FOUND,

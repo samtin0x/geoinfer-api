@@ -5,7 +5,7 @@ from src.database.models import User, Organization, PlanTier
 from src.core.base import BaseService
 from src.modules.organization.permissions import PermissionService
 from src.database.models.organizations import OrganizationRole
-from src.modules.prediction.application.credits import PredictionCreditService
+from src.modules.billing.credits import CreditConsumptionService
 
 
 class UserOnboardingService(BaseService):
@@ -77,7 +77,7 @@ class UserOnboardingService(BaseService):
             granted_by_id=user_id,
         )
 
-        credit_service = PredictionCreditService(self.db)
+        credit_service = CreditConsumptionService(self.db)
         await credit_service.grant_trial_credits_to_user(
             organization_id=organization.id,
             user_id=user_id,
@@ -145,6 +145,11 @@ class UserOnboardingService(BaseService):
 
     async def get_user_organizations(self, user_id: UUID) -> list[Organization]:
         from src.database.models.roles import UserOrganizationRole
+        from sqlalchemy import case
+
+        user = await self.db.get(User, user_id)
+        if not user:
+            return []
 
         stmt = (
             select(Organization)
@@ -153,6 +158,13 @@ class UserOnboardingService(BaseService):
                 Organization.id == UserOrganizationRole.organization_id,
             )
             .where(UserOrganizationRole.user_id == user_id)
+            .order_by(
+                case(
+                    (Organization.id == user.organization_id, 0),
+                    else_=1,
+                ),
+                Organization.created_at.desc(),
+            )
         )
         result = await self.db.execute(stmt)
         return list(result.scalars().all())

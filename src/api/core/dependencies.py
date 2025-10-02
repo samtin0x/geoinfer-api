@@ -11,7 +11,7 @@ from src.modules.keys.api_keys import ApiKeyManagementService
 from src.core.rate_limiting import RateLimiter
 from src.modules.organization.permissions import PermissionService
 from src.modules.organization.use_cases import OrganizationService
-from src.modules.prediction.application.credits import PredictionCreditService
+from src.modules.billing.credits import CreditConsumptionService
 from src.redis.client import get_redis_client
 from src.modules.user.management import UserManagementService
 from src.modules.organization.invitation import (
@@ -24,6 +24,7 @@ from src.modules.prediction.infrastructure.gpu_client import (
     GPUServerClient,
     get_gpu_client,
 )
+from src.utils.r2_client import R2Client
 
 
 async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
@@ -63,9 +64,9 @@ async def get_api_key_management_service(
 
 async def get_prediction_credit_service(
     db: Annotated[AsyncSession, Depends(get_db_session)],
-) -> PredictionCreditService:
+) -> CreditConsumptionService:
     """Get prediction credit service with database session."""
-    return PredictionCreditService(db)
+    return CreditConsumptionService(db)
 
 
 async def get_organization_invitation_service(
@@ -108,6 +109,11 @@ async def get_gpu_server_client() -> GPUServerClient:
     return await get_gpu_client()
 
 
+def get_r2_client() -> R2Client:
+    """Get R2 client."""
+    return R2Client()
+
+
 async def get_current_user_authenticated(request: Request) -> AuthenticatedUserContext:
     """Dependency to get current authenticated user with full context.
 
@@ -140,7 +146,7 @@ ApiKeyManagementServiceDep = Annotated[
     ApiKeyManagementService, Depends(get_api_key_management_service)
 ]
 PredictionCreditServiceDep = Annotated[
-    PredictionCreditService, Depends(get_prediction_credit_service)
+    CreditConsumptionService, Depends(get_prediction_credit_service)
 ]
 OrganizationInvitationServiceDep = Annotated[
     OrganizationInvitationService, Depends(get_organization_invitation_service)
@@ -154,6 +160,7 @@ UserOrganizationServiceDep = Annotated[
 RateLimitServiceDep = Annotated[RateLimiter, Depends(get_rate_limit_service)]
 AnalyticsServiceDep = Annotated[AnalyticsService, Depends(get_analytics_service)]
 GPUServerClientDep = Annotated[GPUServerClient, Depends(get_gpu_server_client)]
+R2ClientDep = Annotated[R2Client, Depends(get_r2_client)]
 
 CurrentUserAuthDep = Annotated[
     AuthenticatedUserContext, Depends(get_current_user_authenticated)

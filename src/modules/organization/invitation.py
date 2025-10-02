@@ -2,7 +2,7 @@ from datetime import datetime, timedelta, timezone
 from secrets import token_urlsafe
 from uuid import UUID
 
-from sqlalchemy import and_, select, update
+from sqlalchemy import and_, func, select, update
 from sqlalchemy.orm import selectinload
 from fastapi import status
 
@@ -64,6 +64,7 @@ class OrganizationInvitationService(BaseService):
         return list(result.scalars().all())
 
     async def get_user_pending_invitations(self, user_email: str) -> list[Invitation]:
+        normalized_email = user_email.lower().strip()
         stmt = (
             select(Invitation)
             .options(
@@ -72,7 +73,7 @@ class OrganizationInvitationService(BaseService):
             )
             .where(
                 and_(
-                    Invitation.email.ilike(user_email.lower()),
+                    func.lower(Invitation.email) == normalized_email,
                     Invitation.status == InvitationStatus.PENDING,
                     Invitation.expires_at > datetime.now(timezone.utc),
                 )
@@ -225,9 +226,11 @@ class OrganizationInvitationService(BaseService):
         return user
 
     async def _ensure_user_not_member(self, email: str, organization_id: UUID):
+        normalized_email = email.lower().strip()
         stmt = select(User).where(
             and_(
-                User.email.ilike(email.lower()), User.organization_id == organization_id
+                func.lower(User.email) == normalized_email,
+                User.organization_id == organization_id,
             )
         )
         result = await self.db.execute(stmt)
@@ -237,10 +240,11 @@ class OrganizationInvitationService(BaseService):
             )
 
     async def _ensure_no_pending_invitation(self, email: str, organization_id: UUID):
+        normalized_email = email.lower().strip()
         stmt = select(Invitation).where(
             and_(
                 Invitation.organization_id == organization_id,
-                Invitation.email.ilike(email.lower()),
+                func.lower(Invitation.email) == normalized_email,
                 Invitation.status == InvitationStatus.PENDING,
             )
         )

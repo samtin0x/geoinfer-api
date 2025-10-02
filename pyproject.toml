@@ -31,6 +31,7 @@ dependencies = [
     "greenlet>=3.2.4",
     "email-normalize>=1.1.0",
     "reverse_geocoder>=1.5.1",
+    "aioboto3>=13.0.0",
 ]
 
 [project.optional-dependencies]

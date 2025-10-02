@@ -2,7 +2,7 @@ from fastapi import APIRouter, Request
 
 from src.api.core.dependencies import AsyncSessionDep, CurrentUserAuthDep
 from src.api.core.messages import APIResponse, MessageCode
-from src.cache.decorator import invalidate_plan_tier_cache
+from src.cache import invalidate_plan_tier_cache
 
 router = APIRouter(prefix="/support", tags=["support"])
 
@@ -13,8 +13,7 @@ async def clear_cache_endpoint(
     db: AsyncSessionDep,
     current_user: CurrentUserAuthDep,
 ) -> APIResponse[bool]:
-    """
-    Clear Redis caches for the current user and organization."""
+    """Clear all caches for the current user and organization."""
     try:
         await invalidate_plan_tier_cache(
             current_user.user.id, current_user.organization.id

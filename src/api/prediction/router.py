@@ -1,6 +1,14 @@
-"""Prediction endpoints router."""
+from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Query, Request, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    Query,
+    Request,
+    UploadFile,
+)
 import redis.asyncio as redis
 
 from src.api.core.constants import (
@@ -24,6 +32,7 @@ from src.api.core.dependencies import (
     AsyncSessionDep,
     CurrentUserAuthDep,
     GPUServerClientDep,
+    R2ClientDep,
 )
 from src.api.core.messages import APIResponse
 from src.api.prediction.schemas import (
@@ -46,6 +55,8 @@ from src.redis.client import get_redis_client
 import reverse_geocoder as rg
 
 router = APIRouter(prefix="/prediction", tags=["prediction"])
+
+TRIAL_ORG_ID = UUID("00000000-0000-0000-0000-000000000000")
 
 
 @router.post("/enrich-locations")
@@ -83,9 +94,11 @@ async def enrich_locations(
 @cost(credits=GLOBAL_MODEL_CREDIT_COST, usage_type=UsageType.GEOINFER_GLOBAL_0_0_1)
 async def predict_location(
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSessionDep,
     current_user: CurrentUserAuthDep,
     gpu_client: GPUServerClientDep,
+    r2_client: R2ClientDep,
     file: UploadFile = File(...),
     top_k: int = Query(default=DEFAULT_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K),
     redis_client: redis.Redis = Depends(get_redis_client),
@@ -106,6 +119,12 @@ async def predict_location(
         usage_type=UsageType.GEOINFER_GLOBAL_0_0_1,
     )
 
+    background_tasks.add_task(
+        r2_client.upload_prediction_image,
+        image_data=file_content,
+        organization_id=current_user.organization.id,
+    )
+
     return APIResponse.success(data=PredictionResponse(prediction=result))
 
 
@@ -116,8 +135,10 @@ async def predict_location(
 )
 async def trial_prediction(
     request: Request,
+    background_tasks: BackgroundTasks,
     db: AsyncSessionDep,
     gpu_client: GPUServerClientDep,
+    r2_client: R2ClientDep,
     file: UploadFile = File(...),
     redis_client: redis.Redis = Depends(get_redis_client),
 ) -> APIResponse[PredictionResult]:
@@ -125,6 +146,7 @@ async def trial_prediction(
     Trial prediction endpoint (no authentication required).
     Limited functionality - returns only top prediction.
     Rate limited to 3 requests per day per IP address.
+    Note: Trial predictions are not uploaded to R2 storage.
     """
     # Validate file (trial: 5MB cap)
     file_content = await validate_image_upload(file, 5 * 1024 * 1024)
@@ -136,6 +158,12 @@ async def trial_prediction(
         top_k=1,
         gpu_client=gpu_client,
         save_to_db=False,  # Trial predictions are not saved to database
+    )
+
+    background_tasks.add_task(
+        r2_client.upload_prediction_image,
+        image_data=file_content,
+        organization_id=TRIAL_ORG_ID,
     )
 
     return APIResponse.success(data=result)

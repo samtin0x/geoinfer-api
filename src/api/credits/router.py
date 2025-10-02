@@ -6,14 +6,12 @@ from src.api.core.dependencies import AsyncSessionDep, CurrentUserAuthDep
 from src.api.core.decorators.auth import require_permission
 from src.database.models.organizations import OrganizationPermission
 from src.api.core.messages import APIResponse, MessageCode, Paginated, PaginationInfo
-from src.modules.prediction.application.credits import PredictionCreditService
+from src.modules.billing.credits import CreditConsumptionService
 from .schemas import (
-    UserCreditBalanceModel,
     CreditGrantRecordModel,
     CreditUsageRecordModel,
 )
 from src.api.credits.schemas import (
-    UserCreditBalanceResponse,
     UsageHistoryResponse,
     CreditGrantsHistoryResponse,
     CreditsSummaryResponse,
@@ -25,36 +23,15 @@ router = APIRouter(
 )
 
 
-@router.get("/balance", response_model=UserCreditBalanceResponse)
-async def get_credit_balance(
-    request: Request,
-    db: AsyncSessionDep,
-    current_user: CurrentUserAuthDep,
-) -> UserCreditBalanceResponse:
-    """Get current organization's credit balance - open to all authenticated users."""
-    credit_service = PredictionCreditService(db)
-    subscription_credits, top_up_credits = (
-        await credit_service.get_organization_credits(
-            organization_id=current_user.organization.id
-        )
-    )
-    balance_data = UserCreditBalanceModel(
-        total_credits=subscription_credits + top_up_credits,
-        subscription_credits=subscription_credits,
-        top_up_credits=top_up_credits,
-    )
-    return APIResponse.success(message_code=MessageCode.SUCCESS, data=balance_data)
-
-
 @router.get("/summary", response_model=CreditsSummaryResponse)
-@require_permission(OrganizationPermission.MANAGE_BILLING)
+@require_permission(OrganizationPermission.VIEW_ANALYTICS)
 async def get_credits_summary(
     request: Request,
     db: AsyncSessionDep,
     current_user: CurrentUserAuthDep,
 ) -> CreditsSummaryResponse:
     """Get detailed credits summary including subscription, topups, and overage breakdown."""
-    credit_service = PredictionCreditService(db)
+    credit_service = CreditConsumptionService(db)
     summary_data = await credit_service.get_credits_summary(
         organization_id=current_user.organization.id
     )
@@ -71,7 +48,7 @@ async def get_credit_consumption_history(
     offset: int = 0,
 ) -> UsageHistoryResponse:
     """Get credit consumption history - records of when credits were consumed/used."""
-    credit_service = PredictionCreditService(db)
+    credit_service = CreditConsumptionService(db)
     records_data_raw, total_records = await credit_service.get_usage_history(
         current_user.organization.id, limit, offset
     )
@@ -101,7 +78,7 @@ async def get_credit_grants_history(
     offset: int = 0,
 ) -> CreditGrantsHistoryResponse:
     """Get credit grants history - records of when credits were allocated/granted."""
-    credit_service = PredictionCreditService(db)
+    credit_service = CreditConsumptionService(db)
     grants_data_raw, total_grants = await credit_service.get_credit_grants_history(
         current_user.organization.id, limit, offset
     )

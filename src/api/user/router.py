@@ -17,6 +17,7 @@ from src.api.user.schemas import (
     SetActiveOrganizationRequest,
     SetActiveOrganizationResponse,
 )
+from src.cache import invalidate_user_cache
 from src.database.models.users import User as UserModel
 from datetime import datetime, timezone
 
@@ -51,6 +52,8 @@ async def update_user_profile(
     user.updated_at = datetime.now(timezone.utc)  # type: ignore
     await db.commit()
     await db.refresh(user)
+
+    await invalidate_user_cache(current_user.user.id)
 
     return APIResponse.success(
         message_code=MessageCode.USER_UPDATED,

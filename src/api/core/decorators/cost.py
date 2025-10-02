@@ -5,7 +5,7 @@ from functools import wraps
 from fastapi import status
 
 from src.database.models import UsageType
-from src.modules.prediction.application.credits import PredictionCreditService
+from src.modules.billing.credits import CreditConsumptionService
 from src.utils.logger import get_logger
 from src.api.core.exceptions.base import GeoInferException
 from src.api.core.messages import MessageCode
@@ -18,9 +18,9 @@ def cost(credits: int = 1, usage_type: UsageType = UsageType.GEOINFER_GLOBAL_0_0
     Decorator to automatically handle credit consumption for API endpoints.
 
     Features:
-    - Pre-checks if user has enough credits
     - Only consumes credits if the request succeeds
     - Works with both user auth and API key auth
+    - Supports overage (if enabled) when subscription/top-up credits are exhausted
 
     Args:
         credits: Number of credits to consume (defaults to GLOBAL_MODEL_CREDIT_COST)
@@ -36,9 +36,9 @@ def cost(credits: int = 1, usage_type: UsageType = UsageType.GEOINFER_GLOBAL_0_0
 
     The decorator will:
     1. Extract user/api_key info from the decorated endpoint
-    2. Check if sufficient credits are available
-    3. Execute the endpoint function
-    4. Only consume credits if no exception was raised
+    2. Execute the endpoint function
+    3. Only consume credits if no exception was raised
+    4. Credits consumed in order: subscription → top-ups → overage (if enabled)
     """
 
     def decorator(func):
@@ -90,27 +90,6 @@ def cost(credits: int = 1, usage_type: UsageType = UsageType.GEOINFER_GLOBAL_0_0
             if auth_type == "api_key" and current_api_key:
                 api_key_id = current_api_key.id
 
-            # Initialize credit service
-            credit_service = PredictionCreditService(db)
-
-            # Check organization's credit balance - treat user and API key auth the same way
-            subscription_credits, top_up_credits = (
-                await credit_service.get_organization_credits(
-                    organization_id=current_organization.id
-                )
-            )
-            available_credits = subscription_credits + top_up_credits
-
-            if available_credits < credits:
-                raise GeoInferException(
-                    MessageCode.INSUFFICIENT_CREDITS,
-                    status.HTTP_402_PAYMENT_REQUIRED,
-                    details={
-                        "required_credits": credits,
-                        "available_credits": available_credits,
-                    },
-                )
-
             # Execute the original function
             try:
                 result = await func(*args, **kwargs)
@@ -125,23 +104,23 @@ def cost(credits: int = 1, usage_type: UsageType = UsageType.GEOINFER_GLOBAL_0_0
                         },
                     )
 
-                success = await credit_service.consume_credits(
+                credit_service = CreditConsumptionService(db)
+                success, reason = await credit_service.consume_credits(
                     organization_id=current_organization.id,
-                    credits_to_consume=credits,
+                    credits_needed=credits,
                     user_id=current_user.id if auth_type == "user" else None,
                     api_key_id=api_key_id,
-                    usage_type=usage_type,
                 )
 
                 if not success:
                     user_identifier = current_user.id if current_user else "API key"
-                    logger.error(f"Failed to consume credits for {user_identifier}")
+                    logger.error(
+                        f"Failed to consume credits for {user_identifier}: {reason}"
+                    )
                     raise GeoInferException(
                         MessageCode.INSUFFICIENT_CREDITS,
                         status.HTTP_402_PAYMENT_REQUIRED,
-                        details={
-                            "description": "Failed to consume credits - please contact support"
-                        },
+                        details={"description": reason},
                     )
 
                 logger.info(

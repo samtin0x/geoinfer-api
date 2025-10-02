@@ -6,7 +6,13 @@ from fastapi import status
 
 from src.api.core.exceptions.base import GeoInferException
 from src.api.core.messages import MessageCode
-from src.cache.decorator import invalidate_user_auth_cache
+from src.cache.decorator import (
+    invalidate_user_auth_cache,
+    invalidate_organization_cache,
+    invalidate_user_roles_cache,
+    invalidate_user_permissions_cache,
+    invalidate_onboarding_cache,
+)
 from src.database.models import (
     Organization,
     OrganizationRole,
@@ -72,6 +78,8 @@ class OrganizationService(BaseService):
         await self.db.commit()
         await self.db.refresh(organization)
 
+        old_org_id = user.organization_id
+
         await self.db.execute(
             update(User)
             .where(User.id == user_id)
@@ -86,7 +94,17 @@ class OrganizationService(BaseService):
             role=OrganizationRole.ADMIN,
             granted_by_id=user_id,
         )
+
         await invalidate_user_auth_cache(user_id)
+        await invalidate_onboarding_cache(user_id)
+        await invalidate_organization_cache(organization.id)
+        if old_org_id:
+            await invalidate_organization_cache(old_org_id)
+            await invalidate_user_roles_cache(user_id, old_org_id)
+            await invalidate_user_permissions_cache(user_id, old_org_id)
+        await invalidate_user_roles_cache(user_id, organization.id)
+        await invalidate_user_permissions_cache(user_id, organization.id)
+
         return organization
 
     async def update_organization_details(
@@ -143,6 +161,10 @@ class OrganizationService(BaseService):
                 status.HTTP_403_FORBIDDEN,
                 {"description": "Insufficient permissions to add members"},
             )
+
+        user = await self.db.get(User, user_id)
+        old_org_id = user.organization_id if user else None
+
         await self.db.execute(
             update(User)
             .where(User.id == user_id)
@@ -155,7 +177,17 @@ class OrganizationService(BaseService):
             granted_by_id=requesting_user_id,
         )
         await self.db.commit()
+
         await invalidate_user_auth_cache(user_id)
+        await invalidate_onboarding_cache(user_id)
+        await invalidate_organization_cache(organization_id)
+        if old_org_id:
+            await invalidate_organization_cache(old_org_id)
+            await invalidate_user_roles_cache(user_id, old_org_id)
+            await invalidate_user_permissions_cache(user_id, old_org_id)
+        await invalidate_user_roles_cache(user_id, organization_id)
+        await invalidate_user_permissions_cache(user_id, organization_id)
+
         return True
 
     async def set_active_organization(
@@ -174,13 +206,26 @@ class OrganizationService(BaseService):
                 },
             )
 
+        user = await self.db.get(User, user_id)
+        old_org_id = user.organization_id if user else None
+
         await self.db.execute(
             update(User)
             .where(User.id == user_id)
             .values(organization_id=organization_id)
         )
         await self.db.commit()
+
         await invalidate_user_auth_cache(user_id)
+        await invalidate_onboarding_cache(user_id)
+        await invalidate_organization_cache(organization_id)
+        if old_org_id and old_org_id != organization_id:
+            await invalidate_organization_cache(old_org_id)
+            await invalidate_user_roles_cache(user_id, old_org_id)
+            await invalidate_user_permissions_cache(user_id, old_org_id)
+        await invalidate_user_roles_cache(user_id, organization_id)
+        await invalidate_user_permissions_cache(user_id, organization_id)
+
         return True
 
     async def get_organization_users_with_roles(

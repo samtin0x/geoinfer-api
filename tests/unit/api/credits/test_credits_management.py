@@ -6,46 +6,6 @@ from fastapi import status
 
 
 @pytest.mark.asyncio
-async def test_get_credit_balance_success(
-    app, authorized_client: AsyncClient, test_user, db_session
-):
-    """Test successful credit balance retrieval."""
-    response = await authorized_client.get("/v1/credits/balance")
-
-    # Should either succeed or fail based on permissions
-    assert response.status_code in [status.HTTP_200_OK, status.HTTP_403_FORBIDDEN]
-
-    if response.status_code == status.HTTP_200_OK:
-        data = response.json()
-        assert "data" in data
-        assert "message_code" in data
-        assert data["message_code"] == "success"
-
-        # Verify balance data structure
-        balance_data = data["data"]
-        assert "balance" in balance_data
-        assert "total_granted" in balance_data
-        assert "total_used" in balance_data
-        assert isinstance(balance_data["balance"], (int, float))
-        assert isinstance(balance_data["total_granted"], (int, float))
-        assert isinstance(balance_data["total_used"], (int, float))
-
-        # Verify mathematical consistency
-        assert (
-            balance_data["balance"]
-            == balance_data["total_granted"] - balance_data["total_used"]
-        )
-        assert balance_data["balance"] >= 0  # Should not be negative
-
-
-@pytest.mark.asyncio
-async def test_get_credit_balance_unauthorized(app, public_client: AsyncClient):
-    """Test that credit balance requires authentication."""
-    response = await public_client.get("/v1/credits/balance")
-    assert response.status_code == status.HTTP_401_UNAUTHORIZED
-
-
-@pytest.mark.asyncio
 async def test_get_credit_consumption_history_success(
     app, authorized_client: AsyncClient, test_user, db_session
 ):
@@ -202,23 +162,11 @@ async def test_credit_amounts_are_numeric(
     app, authorized_client: AsyncClient, test_user, db_session
 ):
     """Test that all credit amounts are numeric values."""
-    # Get balance
-    balance_response = await authorized_client.get("/v1/credits/balance")
-
     # Get grants
     grants_response = await authorized_client.get("/v1/credits/grants")
 
     # Get usage
     usage_response = await authorized_client.get("/v1/credits/consumption")
-
-    if balance_response.status_code == status.HTTP_200_OK:
-        balance_data = balance_response.json()["data"]
-        assert isinstance(balance_data["balance"], (int, float))
-        assert isinstance(balance_data["total_granted"], (int, float))
-        assert isinstance(balance_data["total_used"], (int, float))
-        assert balance_data["balance"] >= 0
-        assert balance_data["total_granted"] >= 0
-        assert balance_data["total_used"] >= 0
 
     if grants_response.status_code == status.HTTP_200_OK:
         grants_data = grants_response.json()["data"]

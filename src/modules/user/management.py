@@ -159,7 +159,7 @@ class UserManagementService(BaseService):
             avatar_url=avatar_url,
             locale=locale,
         )
-        logger.info(f"User {user_id} onboarded")
+        logger.debug(f"User {user_id} onboarded")
         return user, user_org
 
     async def validate_organization_access(

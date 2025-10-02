@@ -725,3 +725,162 @@ class TestStripeIntegration:
         # Verify organization downgraded to FREE
         await stripe_service.db.refresh(test_organization)
         assert test_organization.plan_tier == PlanTier.FREE
+
+    @pytest.mark.asyncio
+    async def test_yearly_subscription_monthly_credit_grants(
+        self, stripe_service, test_organization
+    ):
+        """Test that yearly subscriptions with monthly metered usage grant credits monthly."""
+        from src.database.models import CreditGrant
+
+        # Create a yearly subscription
+        base_time = datetime.now(timezone.utc)
+        yearly_end = base_time + timedelta(days=365)
+
+        subscription = Subscription(
+            id=uuid4(),
+            organization_id=test_organization.id,
+            stripe_subscription_id="sub_yearly_123",
+            stripe_customer_id=test_organization.stripe_customer_id,
+            description="Yearly Subscription",
+            price_paid=600.0,
+            monthly_allowance=1000,
+            overage_unit_price=0.06,
+            status=SubscriptionStatus.ACTIVE,
+            overage_enabled=True,
+            current_period_start=base_time,
+            current_period_end=yearly_end,
+        )
+        stripe_service.db.add(subscription)
+        await stripe_service.db.commit()
+
+        # Simulate first month - subscription.updated with metered item period
+        month_1_start = int(base_time.timestamp())
+        month_1_end = int((base_time + timedelta(days=30)).timestamp())
+
+        webhook_data_month_1 = {
+            "type": "customer.subscription.updated",
+            "data": {
+                "object": {
+                    "id": "sub_yearly_123",
+                    "status": "active",
+                    "cancel_at_period_end": False,
+                    "items": {
+                        "data": [
+                            {
+                                "id": "si_base_123",
+                                "current_period_start": int(base_time.timestamp()),
+                                "current_period_end": int(yearly_end.timestamp()),
+                                "price": {
+                                    "id": "price_yearly",
+                                    "recurring": {
+                                        "interval": "year",
+                                        "usage_type": "licensed",
+                                    },
+                                },
+                            },
+                            {
+                                "id": "si_metered_123",
+                                "current_period_start": month_1_start,
+                                "current_period_end": month_1_end,
+                                "price": {
+                                    "id": "price_metered",
+                                    "recurring": {
+                                        "interval": "month",
+                                        "usage_type": "metered",
+                                    },
+                                },
+                            },
+                        ]
+                    },
+                }
+            },
+        }
+
+        result_1 = await stripe_service.handle_webhook_event(webhook_data_month_1)
+        assert result_1 is True
+
+        # Verify first month credit grant was created
+        grants_stmt_1 = (
+            select(CreditGrant)
+            .where(
+                CreditGrant.subscription_id == subscription.id,
+                CreditGrant.grant_type == GrantType.SUBSCRIPTION,
+            )
+            .order_by(CreditGrant.created_at)
+        )
+        grants_result_1 = await stripe_service.db.execute(grants_stmt_1)
+        grants_1 = grants_result_1.scalars().all()
+
+        assert len(grants_1) == 1
+        assert grants_1[0].amount == 1000
+        assert grants_1[0].remaining_amount == 1000
+
+        # Simulate second month - subscription.updated with new metered period
+        month_2_start = month_1_end
+        month_2_end = int((base_time + timedelta(days=60)).timestamp())
+
+        webhook_data_month_2 = {
+            "type": "customer.subscription.updated",
+            "data": {
+                "object": {
+                    "id": "sub_yearly_123",
+                    "status": "active",
+                    "cancel_at_period_end": False,
+                    "items": {
+                        "data": [
+                            {
+                                "id": "si_base_123",
+                                "current_period_start": int(base_time.timestamp()),
+                                "current_period_end": int(
+                                    yearly_end.timestamp()
+                                ),  # Still yearly
+                                "price": {
+                                    "id": "price_yearly",
+                                    "recurring": {
+                                        "interval": "year",
+                                        "usage_type": "licensed",
+                                    },
+                                },
+                            },
+                            {
+                                "id": "si_metered_123",
+                                "current_period_start": month_2_start,
+                                "current_period_end": month_2_end,  # New monthly period
+                                "price": {
+                                    "id": "price_metered",
+                                    "recurring": {
+                                        "interval": "month",
+                                        "usage_type": "metered",
+                                    },
+                                },
+                            },
+                        ]
+                    },
+                }
+            },
+        }
+
+        result_2 = await stripe_service.handle_webhook_event(webhook_data_month_2)
+        assert result_2 is True
+
+        # Verify second month credit grant was created
+        grants_stmt_2 = (
+            select(CreditGrant)
+            .where(
+                CreditGrant.subscription_id == subscription.id,
+                CreditGrant.grant_type == GrantType.SUBSCRIPTION,
+            )
+            .order_by(CreditGrant.created_at)
+        )
+        grants_result_2 = await stripe_service.db.execute(grants_stmt_2)
+        grants_2 = grants_result_2.scalars().all()
+
+        assert len(grants_2) == 2
+        assert grants_2[1].amount == 1000
+        assert grants_2[1].remaining_amount == 1000
+        assert grants_2[0].expires_at != grants_2[1].expires_at
+
+        # Verify base subscription period is still yearly (within 1 second tolerance for timestamp conversion)
+        await stripe_service.db.refresh(subscription)
+        assert abs((subscription.current_period_end - yearly_end).total_seconds()) < 1

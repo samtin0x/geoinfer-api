@@ -5,14 +5,6 @@ from pydantic import BaseModel
 from src.api.core.messages import APIResponse, Paginated
 
 
-class UserCreditBalanceModel(BaseModel):
-    total_credits: int = 0
-    subscription_credits: int = 0
-    top_up_credits: int = 0
-
-    model_config = {"from_attributes": True}
-
-
 class CreditUsageRecordModel(BaseModel):
     id: str
     organization_id: str
@@ -90,7 +82,6 @@ class CreditsSummaryModel(BaseModel):
 
 
 # Response type aliases
-UserCreditBalanceResponse = APIResponse[UserCreditBalanceModel]
 UsageHistoryResponse = APIResponse[Paginated[CreditUsageRecordModel]]
 CreditGrantsHistoryResponse = APIResponse[Paginated[CreditGrantRecordModel]]
 CreditsSummaryResponse = APIResponse[CreditsSummaryModel]

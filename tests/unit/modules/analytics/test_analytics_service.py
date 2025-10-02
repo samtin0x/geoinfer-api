@@ -242,7 +242,7 @@ async def test_api_key_usage_excluded_from_user_analytics(db_session):
 async def test_cost_decorator_creates_correct_usage_records(db_session):
     """Test that the cost decorator creates usage records with correct user_id attribution."""
     from src.database.models.api_keys import ApiKey
-    from src.services.prediction.credits import PredictionCreditService
+    from src.modules.billing.credits import CreditConsumptionService
 
     # Create test organization and user
     org = Organization(id=uuid4(), name="Test Organization", created_at=datetime.now())
@@ -264,7 +264,7 @@ async def test_cost_decorator_creates_correct_usage_records(db_session):
     await db_session.commit()
 
     # Test credit service
-    credit_service = PredictionCreditService(db_session)
+    credit_service = CreditConsumptionService(db_session)
 
     # Test user authentication creates usage record with user_id
     await credit_service.consume_credits(

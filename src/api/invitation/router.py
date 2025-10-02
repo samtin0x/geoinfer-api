@@ -22,6 +22,8 @@ from src.api.invitation.schemas import (
     InvitationListResponse,
     InvitationModel,
     InvitationPreviewResponse,
+    InvitationWithDetailsListResponse,
+    InvitationWithDetailsModel,
 )
 
 router = APIRouter(
@@ -30,18 +32,19 @@ router = APIRouter(
 )
 
 
-@router.get("/pending", response_model=InvitationListResponse)
+@router.get("/pending", response_model=InvitationWithDetailsListResponse)
 async def get_user_pending_invitations(
     request: Request,
     invitation_service: OrganizationInvitationServiceDep,
     current_user: CurrentUserAuthDep,
-) -> InvitationListResponse:
+) -> InvitationWithDetailsListResponse:
     """Get all pending invitations for the current user."""
     invitations = await invitation_service.get_user_pending_invitations(
         user_email=current_user.user.email
     )
     invitation_data = [
-        InvitationModel.model_validate(invitation) for invitation in invitations
+        InvitationWithDetailsModel.model_validate(invitation)
+        for invitation in invitations
     ]
     return APIResponse.success(message_code=MessageCode.SUCCESS, data=invitation_data)
 

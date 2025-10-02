@@ -50,50 +50,11 @@ def create_test_credit_grant(
 
 
 @pytest.mark.asyncio
-async def test_get_credit_balance_view_analytics_permission(
+async def test_get_credit_summary_with_trial_credits(
     app, authorized_client: AsyncClient, test_user, db_session
 ):
-    """Test that credit balance requires VIEW_ANALYTICS permission."""
-    response = await authorized_client.get("/v1/credits/balance")
-
-    # Should either succeed or fail based on permissions
-    assert response.status_code in [status.HTTP_200_OK, status.HTTP_403_FORBIDDEN]
-
-    if response.status_code == status.HTTP_200_OK:
-        data = response.json()
-        assert "data" in data
-        assert "message_code" in data
-        assert data["message_code"] == "success"
-
-        # Verify balance data structure
-        balance_data = data["data"]
-        assert "balance" in balance_data
-        assert "total_granted" in balance_data
-        assert "total_used" in balance_data
-        assert isinstance(balance_data["balance"], (int, float))
-        assert isinstance(balance_data["total_granted"], (int, float))
-        assert isinstance(balance_data["total_used"], (int, float))
-
-        # Verify mathematical consistency
-        assert (
-            balance_data["balance"]
-            == balance_data["total_granted"] - balance_data["total_used"]
-        )
-
-
-@pytest.mark.asyncio
-async def test_get_credit_balance_unauthorized(app, public_client: AsyncClient):
-    """Test that credit balance requires authentication."""
-    response = await public_client.get("/v1/credits/balance")
-    assert response.status_code == status.HTTP_401_UNAUTHORIZED
-
-
-@pytest.mark.asyncio
-async def test_get_credit_balance_with_trial_credits(
-    app, authorized_client: AsyncClient, test_user, db_session
-):
-    """Test credit balance when user has trial credits."""
-    response = await authorized_client.get("/v1/credits/balance")
+    """Test credit summary when user has trial credits."""
+    response = await authorized_client.get("/v1/credits/summary")
 
     if response.status_code == status.HTTP_200_OK:
         data = response.json()
@@ -234,42 +195,6 @@ async def test_get_credit_grants_history_pagination(
         assert isinstance(grants_history, list)
 
 
-@pytest.mark.asyncio
-async def test_credit_balance_matches_grants_minus_usage(
-    app, authorized_client: AsyncClient, test_user, db_session
-):
-    """Test that credit balance equals grants total minus usage total."""
-    # Get balance
-    balance_response = await authorized_client.get("/v1/credits/balance")
-
-    # Get grants
-    grants_response = await authorized_client.get("/v1/credits/grants")
-
-    # Get usage
-    usage_response = await authorized_client.get("/v1/credits/consumption")
-
-    if (
-        balance_response.status_code == status.HTTP_200_OK
-        and grants_response.status_code == status.HTTP_200_OK
-        and usage_response.status_code == status.HTTP_200_OK
-    ):
-
-        # Extract data
-        balance_data = balance_response.json()["data"]
-        grants_data = grants_response.json()["data"]
-        usage_data = usage_response.json()["data"]
-
-        # Calculate expected balance from grants and usage
-        total_grants = sum(grant["amount"] for grant in grants_data)
-        total_usage = sum(usage["amount"] for usage in usage_data)
-        expected_balance = total_grants - total_usage
-
-        # Should match the reported balance
-        assert balance_data["balance"] == expected_balance
-        assert balance_data["total_granted"] == total_grants
-        assert balance_data["total_used"] == total_usage
-
-
 @pytest.mark.parametrize("endpoint", ["/v1/credits/consumption", "/v1/credits/grants"])
 @pytest.mark.parametrize("limit", [1, 10, 50, 100])
 @pytest.mark.asyncio
@@ -295,25 +220,11 @@ async def test_credit_data_types_are_numeric(
     app, authorized_client: AsyncClient, test_user, db_session
 ):
     """Test that all credit amounts are numeric values."""
-    # Get balance
-    balance_response = await authorized_client.get("/v1/credits/balance")
-
     # Get grants
     grants_response = await authorized_client.get("/v1/credits/grants")
 
     # Get usage
     usage_response = await authorized_client.get("/v1/credits/consumption")
-
-    if balance_response.status_code == status.HTTP_200_OK:
-        balance_data = balance_response.json()["data"]
-        assert isinstance(balance_data["balance"], (int, float))
-        assert isinstance(balance_data["total_granted"], (int, float))
-        assert isinstance(balance_data["total_used"], (int, float))
-
-        # All amounts should be non-negative
-        assert balance_data["balance"] >= 0
-        assert balance_data["total_granted"] >= 0
-        assert balance_data["total_used"] >= 0
 
     if grants_response.status_code == status.HTTP_200_OK:
         grants_data = grants_response.json()["data"]
@@ -393,71 +304,6 @@ async def test_credit_history_includes_trial_grant(
             assert trial_grant["amount"] > 0
             assert "timestamp" in trial_grant
             assert isinstance(trial_grant["amount"], (int, float))
-
-
-@pytest.mark.asyncio
-async def test_credit_endpoints_data_consistency(
-    app, authorized_client: AsyncClient, test_user, db_session
-):
-    """Test that credit data is consistent across all endpoints."""
-    # Get data from all credit endpoints
-    balance_response = await authorized_client.get("/v1/credits/balance")
-    grants_response = await authorized_client.get("/v1/credits/grants")
-    usage_response = await authorized_client.get("/v1/credits/consumption")
-
-    if (
-        balance_response.status_code == status.HTTP_200_OK
-        and grants_response.status_code == status.HTTP_200_OK
-        and usage_response.status_code == status.HTTP_200_OK
-    ):
-
-        balance_data = balance_response.json()["data"]
-        grants_data = grants_response.json()["data"]
-        usage_data = usage_response.json()["data"]
-
-        # Verify mathematical consistency
-        total_grants = sum(grant["amount"] for grant in grants_data)
-        total_usage = sum(usage["amount"] for usage in usage_data)
-
-        assert balance_data["total_granted"] == total_grants
-        assert balance_data["total_used"] == total_usage
-        assert balance_data["balance"] == total_grants - total_usage
-
-        # Verify all amounts are positive
-        assert total_grants > 0
-        assert total_usage >= 0
-        assert balance_data["balance"] >= 0
-
-
-@pytest.mark.asyncio
-async def test_credit_usage_tracking_with_predictions(
-    app, authorized_client: AsyncClient, test_user, db_session
-):
-    """Test that credit usage is properly tracked when predictions are made."""
-    # Get initial balance
-    balance_response = await authorized_client.get("/v1/credits/balance")
-
-    if balance_response.status_code == status.HTTP_200_OK:
-        initial_balance = balance_response.json()["data"]["balance"]
-
-        # Make a prediction (if credits available)
-        if initial_balance > 0:
-            # This would require actual image data and prediction service
-            # For now, just test that the endpoint exists and auth works
-            prediction_response = await authorized_client.get(
-                "/v1/user/profile"
-            )  # Placeholder
-            assert prediction_response.status_code in [
-                status.HTTP_200_OK,
-                status.HTTP_401_UNAUTHORIZED,
-                status.HTTP_403_FORBIDDEN,
-            ]
-
-            # If prediction was made, verify credits were consumed
-            # This would require mocking the prediction service
-            # For now, just verify the balance endpoint still works
-            final_balance_response = await authorized_client.get("/v1/credits/balance")
-            assert final_balance_response.status_code == status.HTTP_200_OK
 
 
 @pytest.mark.asyncio

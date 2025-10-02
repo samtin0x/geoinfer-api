@@ -17,6 +17,7 @@ from tests.factories import (
     SubscriptionFactory,
     CreditGrantFactory,
     UsagePeriodFactory,
+    TopUpFactory,
 )
 from src.database.models.alerts import AlertSettings
 from src.modules.billing.credits.service import CreditConsumptionService
@@ -76,26 +77,47 @@ class TestCreditConsumptionService:
         """Create multiple topup credit grants with different expiry dates."""
         grants = []
 
-        # First topup: 200 credits, expires in 60 days
+        # Create TopUp records first
+        topup1 = await TopUpFactory.create_async(
+            db_session,
+            organization_id=test_organization.id,
+            description="Growth Topup",
+            price_paid=20.0,
+            credits_purchased=200,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=60),
+        )
+
+        topup2 = await TopUpFactory.create_async(
+            db_session,
+            organization_id=test_organization.id,
+            description="Pro Topup",
+            price_paid=50.0,
+            credits_purchased=500,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        )
+
+        # First topup: 200 credits, expires in 60 days (fully available)
         grant1 = await CreditGrantFactory.create_async(
             db_session,
             organization_id=test_organization.id,
+            topup_id=topup1.id,
             grant_type=GrantType.TOPUP,
             description="Growth Topup",
             amount=200,
-            remaining_amount=150,  # 50 already consumed
+            remaining_amount=200,  # None consumed yet
             expires_at=datetime.now(timezone.utc) + timedelta(days=60),
         )
         grants.append(grant1)
 
-        # Second topup: 500 credits, expires in 30 days (earlier expiry)
+        # Second topup: 500 credits, expires in 30 days (earlier expiry, fully available)
         grant2 = await CreditGrantFactory.create_async(
             db_session,
             organization_id=test_organization.id,
+            topup_id=topup2.id,
             grant_type=GrantType.TOPUP,
             description="Pro Topup",
             amount=500,
-            remaining_amount=300,  # 200 already consumed
+            remaining_amount=500,  # None consumed yet
             expires_at=datetime.now(timezone.utc) + timedelta(days=30),
         )
         grants.append(grant2)
@@ -169,8 +191,8 @@ class TestCreditConsumptionService:
         await service.db.refresh(topup_credit_grants[1])  # 30 days expiry
 
         # First topup (earlier expiry) should be consumed first
-        assert topup_credit_grants[1].remaining_amount == 200  # 300 - 100
-        assert topup_credit_grants[0].remaining_amount == 150  # Unchanged
+        assert topup_credit_grants[1].remaining_amount == 400  # 500 - 100
+        assert topup_credit_grants[0].remaining_amount == 200  # Unchanged
 
     @pytest.mark.asyncio
     async def test_consume_credits_all_sources_exhausted_overage_disabled(
@@ -199,7 +221,7 @@ class TestCreditConsumptionService:
         for grant in topup_credit_grants:
             await service.db.refresh(grant)
             # Should remain unchanged
-            assert grant.remaining_amount in [150, 300]
+            assert grant.remaining_amount in [200, 500]
 
     @pytest.mark.asyncio
     async def test_consume_credits_overage_enabled_success(
@@ -217,7 +239,9 @@ class TestCreditConsumptionService:
         await service.db.commit()
 
         organization_id = active_subscription.organization_id
-        credits_needed = 1500  # More than all available credits
+        # Total available: 800 (subscription) + 700 (topups) = 1500
+        # Request 1700 to require 200 overage
+        credits_needed = 1700
 
         success, reason = await service.consume_credits(
             organization_id=organization_id, credits_needed=credits_needed
@@ -228,7 +252,7 @@ class TestCreditConsumptionService:
 
         # Verify overage was used
         await service.db.refresh(usage_period)
-        assert usage_period.overage_used == 200  # 1500 - 1300 available = 200 overage
+        assert usage_period.overage_used == 200  # 1700 - 1500 available = 200 overage
 
     @pytest.mark.asyncio
     async def test_consume_credits_overage_cap_exceeded(
@@ -246,7 +270,9 @@ class TestCreditConsumptionService:
         await service.db.commit()
 
         organization_id = active_subscription.organization_id
-        credits_needed = 1500  # Would require 200 overage, but cap is 100
+        # Total available: 800 (subscription) + 700 (topups) = 1500
+        # Request 1700 to require 200 overage, but cap is only 100
+        credits_needed = 1700
 
         success, reason = await service.consume_credits(
             organization_id=organization_id, credits_needed=credits_needed
@@ -441,4 +467,546 @@ class TestCreditConsumptionService:
         # Verify topup grants were not touched
         for grant in topup_credit_grants:
             await service.db.refresh(grant)
-            assert grant.remaining_amount in [150, 300]  # Unchanged
+            assert grant.remaining_amount in [200, 500]  # Unchanged
+
+    @pytest.mark.asyncio
+    async def test_credits_summary_used_this_period_excludes_topup_usage(
+        self,
+        service,
+        active_subscription,
+        subscription_credit_grant,
+        topup_credit_grants,
+        usage_period,
+    ):
+        """Test that used_this_period only counts subscription credits, not top-up credits."""
+        organization_id = active_subscription.organization_id
+
+        # Consume 100 credits from subscription
+        success1, _ = await service.consume_credits(
+            organization_id=organization_id, credits_needed=100
+        )
+        assert success1 is True
+
+        # Consume all remaining subscription credits (700)
+        await service.db.refresh(subscription_credit_grant)
+        remaining_subscription = subscription_credit_grant.remaining_amount
+        success2, _ = await service.consume_credits(
+            organization_id=organization_id, credits_needed=remaining_subscription
+        )
+        assert success2 is True
+
+        # Now consume 150 credits which will come from topup
+        success3, _ = await service.consume_credits(
+            organization_id=organization_id, credits_needed=150
+        )
+        assert success3 is True
+
+        await service.db.commit()
+
+        # Get credits summary
+        summary = await service.get_credits_summary(organization_id=organization_id)
+
+        # Verify subscription summary
+        assert summary.subscription is not None
+        assert summary.subscription.granted_this_period == 1000
+        # used_this_period should only count the 800 subscription credits consumed (100 + 700)
+        # NOT the 150 topup credits consumed
+        assert summary.subscription.used_this_period == 800
+        assert summary.subscription.remaining == 0
+
+        # Verify topup summary shows 150 used
+        total_topup_used = sum(topup.used for topup in summary.topups if topup.used > 0)
+        assert total_topup_used == 150
+
+    @pytest.mark.asyncio
+    async def test_partial_consumption_from_multiple_sources_with_usage_records(
+        self,
+        service,
+        active_subscription,
+        subscription_credit_grant,
+        topup_credit_grants,
+        usage_period,
+    ):
+        """
+        Test partial consumption from subscription and topups creates separate usage records.
+
+        Scenario: Cost 500 credits with 250 in subscription + 400 in topup available
+        Expected: Two UsageRecords - one for 250 from subscription, one for 250 from topup
+        """
+        from sqlalchemy import select
+        from src.database.models import UsageRecord, OperationType
+
+        organization_id = active_subscription.organization_id
+
+        # Set subscription grant to 250 remaining
+        subscription_credit_grant.remaining_amount = 250
+        await service.db.commit()
+
+        # Cost: 500 credits (needs 250 subscription + 250 topup)
+        credits_needed = 500
+        user_id = uuid4()
+        api_key_id = uuid4()
+
+        success, reason = await service.consume_credits(
+            organization_id=organization_id,
+            credits_needed=credits_needed,
+            user_id=user_id,
+            api_key_id=api_key_id,
+        )
+
+        assert success is True
+        assert reason == "Credits consumed successfully"
+
+        # Verify subscription grant is fully consumed
+        await service.db.refresh(subscription_credit_grant)
+        assert subscription_credit_grant.remaining_amount == 0
+
+        # Verify topup was partially consumed (earliest expiry first)
+        await service.db.refresh(topup_credit_grants[1])  # 30 days expiry (earlier)
+        assert topup_credit_grants[1].remaining_amount == 250  # 500 - 250
+
+        # Get all usage records
+        stmt = (
+            select(UsageRecord)
+            .where(
+                UsageRecord.organization_id == organization_id,
+                UsageRecord.operation_type == OperationType.CONSUMPTION,
+            )
+            .order_by(UsageRecord.created_at.asc())
+        )
+        result = await service.db.execute(stmt)
+        records = result.scalars().all()
+
+        # Should have exactly 2 usage records
+        assert len(records) == 2
+
+        # First record: subscription consumption
+        sub_record = records[0]
+        assert sub_record.credits_consumed == 250
+        assert sub_record.subscription_id == active_subscription.id
+        assert sub_record.topup_id is None
+        assert sub_record.user_id == user_id
+        assert sub_record.api_key_id == api_key_id
+
+        # Second record: topup consumption
+        topup_record = records[1]
+        assert topup_record.credits_consumed == 250
+        assert topup_record.subscription_id is None
+        assert topup_record.topup_id == topup_credit_grants[1].topup_id
+        assert topup_record.user_id == user_id
+        assert topup_record.api_key_id == api_key_id
+
+    @pytest.mark.asyncio
+    async def test_consumption_order_across_all_three_sources(
+        self,
+        service,
+        active_subscription,
+        subscription_credit_grant,
+        topup_credit_grants,
+        usage_period,
+    ):
+        """
+        Test that credits are consumed in correct order: subscription → topups → overage.
+
+        Scenario: Cost 2000 credits with 800 subscription + 700 topups + overage enabled
+        Expected: Consumes all subscription, all topups, then 500 from overage
+        """
+        from sqlalchemy import select
+        from src.database.models import UsageRecord, OperationType
+
+        organization_id = active_subscription.organization_id
+
+        # Enable overage with high cap
+        active_subscription.overage_enabled = True
+        active_subscription.user_extra_cap = 1000
+        await service.db.commit()
+
+        # Total available before overage: 800 (subscription) + 700 (topups) = 1500
+        # Request 2000 to use 500 overage
+        credits_needed = 2000
+        user_id = uuid4()
+
+        success, reason = await service.consume_credits(
+            organization_id=organization_id,
+            credits_needed=credits_needed,
+            user_id=user_id,
+        )
+
+        assert success is True
+        assert reason == "Credits consumed successfully"
+
+        # 1. Verify subscription grant fully consumed
+        await service.db.refresh(subscription_credit_grant)
+        assert subscription_credit_grant.remaining_amount == 0
+
+        # 2. Verify all topup grants fully consumed
+        for grant in topup_credit_grants:
+            await service.db.refresh(grant)
+            assert grant.remaining_amount == 0
+
+        # 3. Verify overage used
+        await service.db.refresh(usage_period)
+        assert usage_period.overage_used == 500
+
+        # Get all usage records (excluding overage as it doesn't create UsageRecord)
+        stmt = (
+            select(UsageRecord)
+            .where(
+                UsageRecord.organization_id == organization_id,
+                UsageRecord.operation_type == OperationType.CONSUMPTION,
+            )
+            .order_by(UsageRecord.created_at.asc())
+        )
+        result = await service.db.execute(stmt)
+        records = result.scalars().all()
+
+        # Should have 3 records: 1 subscription + 2 topups (no record for overage)
+        assert len(records) == 3
+
+        # Record 1: subscription (800 credits)
+        assert records[0].credits_consumed == 800
+        assert records[0].subscription_id == active_subscription.id
+        assert records[0].topup_id is None
+
+        # Record 2: first topup by expiry (30 days, 500 credits)
+        assert records[1].credits_consumed == 500
+        assert records[1].subscription_id is None
+        assert records[1].topup_id == topup_credit_grants[1].topup_id
+
+        # Record 3: second topup (60 days, 200 credits)
+        assert records[2].credits_consumed == 200
+        assert records[2].subscription_id is None
+        assert records[2].topup_id == topup_credit_grants[0].topup_id
+
+        # Total from records should be 1500 (not including overage)
+        total_from_records = sum(r.credits_consumed for r in records)
+        assert total_from_records == 1500
+
+    @pytest.mark.asyncio
+    async def test_topup_expiry_ordering_with_multiple_topups(
+        self,
+        service,
+        db_session,
+        active_subscription,
+        test_organization,
+        usage_period,
+    ):
+        """
+        Test that topups are consumed in earliest-expiry-first order.
+
+        Scenario: 4 topups with different expiry dates
+        Expected: Consumed in order of earliest expiry
+        """
+        from sqlalchemy import select
+        from src.database.models import UsageRecord, OperationType
+
+        organization_id = active_subscription.organization_id
+
+        # Create 4 topups with different expiry dates
+        topup_data = [
+            (100, 60, "Topup A - 60 days"),  # Latest expiry
+            (150, 15, "Topup B - 15 days"),  # Second earliest
+            (200, 7, "Topup C - 7 days"),  # Earliest expiry
+            (250, 30, "Topup D - 30 days"),  # Third earliest
+        ]
+
+        topups = []
+        for credits, days, desc in topup_data:
+            topup = await TopUpFactory.create_async(
+                db_session,
+                organization_id=organization_id,
+                description=desc,
+                price_paid=float(credits / 10),
+                credits_purchased=credits,
+                expires_at=datetime.now(timezone.utc) + timedelta(days=days),
+            )
+
+            grant = await CreditGrantFactory.create_async(
+                db_session,
+                organization_id=organization_id,
+                topup_id=topup.id,
+                grant_type=GrantType.TOPUP,
+                description=desc,
+                amount=credits,
+                remaining_amount=credits,
+                expires_at=datetime.now(timezone.utc) + timedelta(days=days),
+            )
+            topups.append((topup, grant, days))
+
+        await service.db.commit()
+
+        # Consume 400 credits (should use: 200 from 7-day, 150 from 15-day, 50 from 30-day)
+        credits_needed = 400
+
+        success, reason = await service.consume_credits(
+            organization_id=organization_id,
+            credits_needed=credits_needed,
+        )
+
+        assert success is True
+
+        # Get usage records in order
+        stmt = (
+            select(UsageRecord)
+            .where(
+                UsageRecord.organization_id == organization_id,
+                UsageRecord.operation_type == OperationType.CONSUMPTION,
+            )
+            .order_by(UsageRecord.created_at.asc())
+        )
+        result = await service.db.execute(stmt)
+        records = result.scalars().all()
+
+        # Should have 3 usage records
+        assert len(records) == 3
+
+        # Verify consumption order by expiry
+        # Record 1: 7-day topup (200 credits) - earliest expiry
+        assert records[0].credits_consumed == 200
+        assert records[0].topup_id == topups[2][0].id  # Topup C
+
+        # Record 2: 15-day topup (150 credits) - second earliest
+        assert records[1].credits_consumed == 150
+        assert records[1].topup_id == topups[1][0].id  # Topup B
+
+        # Record 3: 30-day topup (50 credits) - third earliest
+        assert records[2].credits_consumed == 50
+        assert records[2].topup_id == topups[3][0].id  # Topup D
+
+    @pytest.mark.asyncio
+    async def test_overage_cap_enforcement_with_partial_consumption(
+        self,
+        service,
+        active_subscription,
+        subscription_credit_grant,
+        topup_credit_grants,
+        usage_period,
+    ):
+        """
+        Test that overage cap is enforced and prevents partial consumption.
+
+        Scenario: Need 2000 credits, have 1500 available, cap is 200 (need 500)
+        Expected: Consumption fails, no credits consumed from any source
+        """
+        from sqlalchemy import select
+        from src.database.models import UsageRecord
+
+        organization_id = active_subscription.organization_id
+
+        # Enable overage with cap of 200 (need 500)
+        active_subscription.overage_enabled = True
+        active_subscription.user_extra_cap = 200  # Cap too low
+        await service.db.commit()
+
+        # Store initial values
+        initial_sub_remaining = subscription_credit_grant.remaining_amount
+        initial_topup1_remaining = topup_credit_grants[0].remaining_amount
+        initial_topup2_remaining = topup_credit_grants[1].remaining_amount
+
+        # Request 2000 (would need 500 overage which exceeds cap of 200)
+        credits_needed = 2000
+
+        success, reason = await service.consume_credits(
+            organization_id=organization_id,
+            credits_needed=credits_needed,
+        )
+
+        assert success is False
+        assert "Overage cap" in reason
+        assert "200" in reason
+
+        # Verify NO credits were consumed from any source
+        await service.db.refresh(subscription_credit_grant)
+        assert subscription_credit_grant.remaining_amount == initial_sub_remaining
+
+        for i, grant in enumerate(topup_credit_grants):
+            await service.db.refresh(grant)
+            if i == 0:
+                assert grant.remaining_amount == initial_topup1_remaining
+            else:
+                assert grant.remaining_amount == initial_topup2_remaining
+
+        # Verify no overage was used
+        await service.db.refresh(usage_period)
+        assert usage_period.overage_used == 0
+
+        # Verify no usage records were created
+        stmt = select(UsageRecord).where(UsageRecord.organization_id == organization_id)
+        result = await service.db.execute(stmt)
+        records = result.scalars().all()
+        assert len(records) == 0
+
+    @pytest.mark.asyncio
+    async def test_overage_unlimited_cap_with_large_consumption(
+        self,
+        service,
+        active_subscription,
+        subscription_credit_grant,
+        topup_credit_grants,
+        usage_period,
+    ):
+        """
+        Test overage with unlimited cap (user_extra_cap = None).
+
+        Scenario: Need 5000 credits, have 1500 available, unlimited overage
+        Expected: Consumes all available, then 3500 from overage
+        """
+        organization_id = active_subscription.organization_id
+
+        # Enable overage with unlimited cap
+        active_subscription.overage_enabled = True
+        active_subscription.user_extra_cap = None  # Unlimited
+        await service.db.commit()
+
+        # Request 5000 (1500 available + 3500 overage)
+        credits_needed = 5000
+
+        success, reason = await service.consume_credits(
+            organization_id=organization_id,
+            credits_needed=credits_needed,
+        )
+
+        assert success is True
+        assert reason == "Credits consumed successfully"
+
+        # Verify all subscription consumed
+        await service.db.refresh(subscription_credit_grant)
+        assert subscription_credit_grant.remaining_amount == 0
+
+        # Verify all topups consumed
+        for grant in topup_credit_grants:
+            await service.db.refresh(grant)
+            assert grant.remaining_amount == 0
+
+        # Verify 3500 overage used
+        await service.db.refresh(usage_period)
+        assert usage_period.overage_used == 3500
+
+    @pytest.mark.asyncio
+    async def test_complex_partial_consumption_three_topups(
+        self,
+        service,
+        db_session,
+        active_subscription,
+        test_organization,
+        usage_period,
+    ):
+        """
+        Test complex scenario with partial consumption across subscription and multiple topups.
+
+        Scenario: Cost 1000 with subscription=300, topup1=250, topup2=400, topup3=100
+        Expected: Uses all 300 sub + all 250 topup1 + 400 topup2 + 50 from topup3
+        """
+        from sqlalchemy import select
+        from src.database.models import UsageRecord, OperationType
+
+        organization_id = active_subscription.organization_id
+
+        # Create subscription grant with 300 remaining
+        sub_grant = await CreditGrantFactory.create_async(
+            db_session,
+            organization_id=organization_id,
+            subscription_id=active_subscription.id,
+            grant_type=GrantType.SUBSCRIPTION,
+            description="Monthly allowance",
+            amount=1000,
+            remaining_amount=300,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        )
+
+        # Create 3 topups with different amounts
+        topup_configs = [
+            (250, 10, "Topup 1"),  # Earliest expiry
+            (400, 20, "Topup 2"),
+            (100, 30, "Topup 3"),  # Latest expiry
+        ]
+
+        topup_grants = []
+        for credits, days, desc in topup_configs:
+            topup = await TopUpFactory.create_async(
+                db_session,
+                organization_id=organization_id,
+                description=desc,
+                price_paid=float(credits / 10),
+                credits_purchased=credits,
+                expires_at=datetime.now(timezone.utc) + timedelta(days=days),
+            )
+
+            grant = await CreditGrantFactory.create_async(
+                db_session,
+                organization_id=organization_id,
+                topup_id=topup.id,
+                grant_type=GrantType.TOPUP,
+                description=desc,
+                amount=credits,
+                remaining_amount=credits,
+                expires_at=datetime.now(timezone.utc) + timedelta(days=days),
+            )
+            topup_grants.append((topup, grant))
+
+        await service.db.commit()
+
+        # Consume 1000 credits
+        # Expected: 300 (sub) + 250 (topup1) + 400 (topup2) + 50 (topup3)
+        credits_needed = 1000
+
+        success, reason = await service.consume_credits(
+            organization_id=organization_id,
+            credits_needed=credits_needed,
+        )
+
+        assert success is True
+
+        # Verify subscription fully consumed
+        await service.db.refresh(sub_grant)
+        assert sub_grant.remaining_amount == 0
+
+        # Verify topup consumptions
+        await service.db.refresh(topup_grants[0][1])
+        assert topup_grants[0][1].remaining_amount == 0  # Fully consumed
+
+        await service.db.refresh(topup_grants[1][1])
+        assert topup_grants[1][1].remaining_amount == 0  # Fully consumed
+
+        await service.db.refresh(topup_grants[2][1])
+        assert (
+            topup_grants[2][1].remaining_amount == 50
+        )  # Partially consumed (100 - 50)
+
+        # Get usage records and verify
+        stmt = (
+            select(UsageRecord)
+            .where(
+                UsageRecord.organization_id == organization_id,
+                UsageRecord.operation_type == OperationType.CONSUMPTION,
+            )
+            .order_by(UsageRecord.created_at.asc())
+        )
+        result = await service.db.execute(stmt)
+        records = result.scalars().all()
+
+        # Should have 4 usage records
+        assert len(records) == 4
+
+        # Verify amounts
+        assert records[0].credits_consumed == 300  # Subscription
+        assert records[1].credits_consumed == 250  # Topup 1
+        assert records[2].credits_consumed == 400  # Topup 2
+        assert records[3].credits_consumed == 50  # Topup 3 (partial)
+
+        # Verify IDs
+        assert records[0].subscription_id == active_subscription.id
+        assert records[0].topup_id is None
+
+        assert records[1].topup_id == topup_grants[0][0].id
+        assert records[1].subscription_id is None
+
+        assert records[2].topup_id == topup_grants[1][0].id
+        assert records[2].subscription_id is None
+
+        assert records[3].topup_id == topup_grants[2][0].id
+        assert records[3].subscription_id is None
+
+        # Total should match requested
+        total = sum(r.credits_consumed for r in records)
+        assert total == 1000

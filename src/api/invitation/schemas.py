@@ -23,9 +23,9 @@ class InvitationModel(BaseModel):
 
 
 class InvitationWithDetailsModel(InvitationModel):
+    token: str
     organization: OrganizationModel
     invited_by: UserModel
-    email: str
 
     class Config:
         from_attributes = True
@@ -53,4 +53,5 @@ InvitationCreateResponse = APIResponse[InvitationModel]
 InvitationAcceptResponse = APIResponse[InvitationModel]
 InvitationDeclineResponse = APIResponse[InvitationModel]
 InvitationListResponse = APIResponse[list[InvitationModel]]
+InvitationWithDetailsListResponse = APIResponse[list[InvitationWithDetailsModel]]
 InvitationPreviewResponse = APIResponse[dict]

@@ -1,4 +1,3 @@
-import hashlib
 import pickle
 import redis.asyncio as redis
 from functools import wraps
@@ -11,30 +10,25 @@ logger = get_logger(__name__)
 
 
 def _generate_cache_key(func, args: tuple, kwargs: dict) -> str:
-    """Generate a consistent cache key for the function call."""
-    # Create a hash of the function name and arguments
-    key_parts = [func.__module__, func.__qualname__]
+    """Generate cache key from function name and business parameters only."""
+    key_parts = [func.__module__.replace(".", ":"), func.__qualname__.replace(".", ":")]
 
-    # Skip 'self' for instance methods (first argument)
-    # Check if this looks like an instance method by checking if first arg is an object
-    start_idx = 0
-    if (
-        args
-        and hasattr(args[0], "__dict__")
-        and not isinstance(args[0], (str, int, float, bool, list, dict, tuple, set))
-    ):
-        start_idx = 1
+    # Skip 'self' for instance methods
+    start_idx = 1 if args and hasattr(args[0], "__class__") else 0
 
-    # Add positional arguments (skipping self if instance method)
+    # Only include simple types in cache key (skip Request, AsyncSession, etc.)
     for arg in args[start_idx:]:
-        key_parts.append(str(arg))
+        if isinstance(arg, (str, int, float, bool, UUID)):
+            safe_arg = str(arg).replace(":", "_").replace("*", "_")
+            key_parts.append(safe_arg)
 
-    # Add keyword arguments in sorted order
+    # Include kwargs that are simple types
     for k, v in sorted(kwargs.items()):
-        key_parts.append(f"{k}:{v}")
+        if isinstance(v, (str, int, float, bool, UUID)):
+            safe_val = str(v).replace(":", "_").replace("*", "_")
+            key_parts.append(f"{k}={safe_val}")
 
-    key_string = "|".join(key_parts)
-    return f"cache:{hashlib.md5(key_string.encode()).hexdigest()}"
+    return "cache:" + ":".join(key_parts)
 
 
 async def _get_cache(key: str):
@@ -52,54 +46,87 @@ async def _get_cache(key: str):
         return None
 
 
-async def _set_cache(key: str, value, ttl: int) -> bool:
-    """Set value in Redis cache with TTL."""
+async def _set_cache(key: str, value, ttl: int, tags: list[str] | None = None) -> bool:
+    """Set value in Redis cache with TTL and optional tags."""
     try:
         redis_client = redis.from_url(RedisSettings().REDIS_URL, decode_responses=False)
         pickled_value = pickle.dumps(value)
-        result = await redis_client.setex(key, ttl, pickled_value)
+        await redis_client.setex(key, ttl, pickled_value)
+
+        # Extract additional tags from the cached value if it's an AuthenticatedUserContext
+        result_tags = _extract_tags_from_result(value)
+        all_tags = list(set((tags or []) + result_tags))
+
+        # Track cache key by tags for easy invalidation
+        if all_tags:
+            for tag in all_tags:
+                tag_key = f"cache:tag:{tag}"
+                await redis_client.sadd(tag_key, key)
+                await redis_client.expire(tag_key, ttl)
+
         await redis_client.close()
-        return result
+        return True
     except Exception as e:
         logger.error(f"Failed to set cache key '{key}': {e}")
         return False
 
 
+def _extract_tags(args: tuple, kwargs: dict) -> list[str]:
+    """Extract UUIDs from args/kwargs for cache tagging."""
+    tags = []
+    start_idx = 1 if args and hasattr(args[0], "__class__") else 0
+
+    # Tag all UUIDs found in arguments
+    for arg in args[start_idx:]:
+        if isinstance(arg, UUID):
+            tags.extend([f"user:{arg}", f"org:{arg}"])
+
+    for k, v in kwargs.items():
+        if isinstance(v, UUID):
+            if "user" in k.lower():
+                tags.append(f"user:{v}")
+            elif "org" in k.lower():
+                tags.append(f"org:{v}")
+
+    return tags
+
+
+def _extract_tags_from_result(value) -> list[str]:
+    """Extract tags from cached result values (e.g., AuthenticatedUserContext)."""
+    tags = []
+
+    # Handle AuthenticatedUserContext
+    if hasattr(value, "user") and hasattr(value, "organization"):
+        if hasattr(value.user, "id"):
+            tags.append(f"user:{value.user.id}")
+        if hasattr(value.organization, "id"):
+            tags.append(f"org:{value.organization.id}")
+
+    return tags
+
+
 def cached(ttl: int = 900):
-    """
-    Cache decorator with custom TTL using Redis backend.
-
-    Args:
-        ttl: Time to live in seconds (default: 900 = 15 minutes)
-
-    Usage:
-        @cached()              # 15 minutes (default)
-        @cached(60)            # 1 minute
-        @cached(300)           # 5 minutes
-        @cached(3600)          # 1 hour
-    """
+    """Cache decorator with Redis backend."""
 
     def decorator(func):
         @wraps(func)
         async def wrapper(*args, **kwargs):
-            # Generate cache key
             cache_key = _generate_cache_key(func, args, kwargs)
 
-            # Try to get from cache first
+            # Try cache first
             cached_value = await _get_cache(cache_key)
             if cached_value is not None:
-                logger.debug(f"Cache hit for {func.__name__}")
+                logger.debug(f"Cache hit: {cache_key}")
                 return cached_value
 
-            logger.debug(f"Cache miss for {func.__name__}")
-
-            # Execute the function
+            # Execute function
             result = await func(*args, **kwargs)
 
-            # Cache the result
-            await _set_cache(cache_key, result, ttl)
+            # Cache with tags for invalidation
+            tags = _extract_tags(args, kwargs)
+            await _set_cache(cache_key, result, ttl, tags)
 
-            logger.debug(f"Cached result for {func.__name__}")
+            logger.debug(f"Cached: {cache_key}")
             return result
 
         return wrapper
@@ -114,23 +141,54 @@ async def invalidate_cache(func, *args, **kwargs) -> bool:
         redis_client = redis.from_url(RedisSettings().REDIS_URL, decode_responses=False)
 
         result = await redis_client.delete(cache_key)
+
+        # Clean up tag references
+        tags = _extract_tags(args, kwargs)
+        if tags:
+            for tag in tags:
+                tag_key = f"cache:tag:{tag}"
+                await redis_client.srem(tag_key, cache_key)
+
         await redis_client.close()
 
         if result:
-            logger.info(
-                f"Invalidated cache for {func.__name__} with args={args}, kwargs={kwargs}"
-            )
-        else:
-            logger.debug(f"No cache entry found for {func.__name__}")
-
+            logger.info(f"Invalidated cache: {cache_key}")
         return result > 0
     except Exception as e:
         logger.error(f"Failed to invalidate cache for {func.__name__}: {e}")
         return False
 
 
-async def _invalidate_cache_pattern(pattern: str):
-    """Internal helper to invalidate cache entries matching a pattern."""
+async def _invalidate_by_tag(tag: str) -> int:
+    """Invalidate all cache entries with a specific tag."""
+    try:
+        redis_client = redis.from_url(RedisSettings().REDIS_URL, decode_responses=True)
+
+        tag_key = f"cache:tag:{tag}"
+        cache_keys = await redis_client.smembers(tag_key)
+
+        if not cache_keys:
+            await redis_client.close()
+            return 0
+
+        deleted = await redis_client.delete(*cache_keys, tag_key)
+        await redis_client.close()
+
+        logger.info(f"Invalidated {len(cache_keys)} entries for {tag}")
+        return deleted
+
+    except Exception as e:
+        logger.error(f"Failed to invalidate tag '{tag}': {e}")
+        return 0
+
+
+async def _invalidate_cache_pattern(pattern: str) -> int:
+    """
+    Internal helper to invalidate cache entries matching a pattern.
+
+    Note: This is a fallback for backward compatibility. Prefer using tag-based
+    invalidation (_invalidate_by_tag) for better performance.
+    """
     try:
         redis_client = redis.from_url(RedisSettings().REDIS_URL, decode_responses=True)
 
@@ -142,24 +200,36 @@ async def _invalidate_cache_pattern(pattern: str):
                 f"Invalidated {deleted_count} cache entries matching '{pattern}'"
             )
         else:
-            logger.info(f"No cache entries found matching pattern '{pattern}'")
+            logger.debug(f"No cache entries found matching pattern '{pattern}'")
+            deleted_count = 0
 
         await redis_client.close()
+        return deleted_count
 
     except Exception as e:
         logger.error(f"Failed to invalidate cache pattern '{pattern}': {e}")
+        return 0
 
 
-async def invalidate_user_auth_cache(user_id: UUID):
-    """Invalidate all auth cache for a specific user."""
-    await _invalidate_cache_pattern(f"cache:*{user_id}*")
-    logger.info(f"Invalidated auth cache for user {user_id}")
+async def invalidate_user_cache(user_id: UUID) -> int:
+    """Invalidate all cache entries for a specific user."""
+    count = await _invalidate_by_tag(f"user:{user_id}")
+    logger.info(f"Invalidated {count} cache entries for user {user_id}")
+    return count
 
 
-async def invalidate_organization_cache(organization_id: UUID):
-    """Invalidate all cache for a specific organization."""
-    await _invalidate_cache_pattern(f"cache:*{organization_id}*")
-    logger.info(f"Invalidated cache for organization {organization_id}")
+async def invalidate_organization_cache(organization_id: UUID) -> int:
+    """Invalidate all cache entries for a specific organization."""
+    count = await _invalidate_by_tag(f"org:{organization_id}")
+    logger.info(f"Invalidated {count} cache entries for organization {organization_id}")
+    return count
+
+
+async def invalidate_entity_cache(entity_id: UUID) -> int:
+    """Invalidate all cache entries for a specific entity (generic)."""
+    count = await _invalidate_by_tag(f"entity:{entity_id}")
+    logger.info(f"Invalidated {count} cache entries for entity {entity_id}")
+    return count
 
 
 async def invalidate_api_key_cache(api_key: str):
@@ -168,63 +238,43 @@ async def invalidate_api_key_cache(api_key: str):
     logger.info("Invalidated cache for API key")
 
 
+# Backward compatibility aliases
+async def invalidate_user_auth_cache(user_id: UUID):
+    """Invalidate all auth cache for a specific user."""
+    return await invalidate_user_cache(user_id)
+
+
 async def invalidate_onboarding_cache(user_id: UUID):
     """Invalidate onboarding cache for a specific user."""
-    await _invalidate_cache_pattern(f"cache:*ensure_user_onboarded_cached*{user_id}*")
-    logger.info(f"Invalidated onboarding cache for user {user_id}")
+    return await invalidate_user_cache(user_id)
 
 
 async def invalidate_user_roles_cache(user_id: UUID, organization_id: UUID):
     """Invalidate user roles cache for a specific user and organization."""
-    await _invalidate_cache_pattern(f"cache:*{user_id}*roles*{organization_id}*")
+    user_count = await invalidate_user_cache(user_id)
+    org_count = await invalidate_organization_cache(organization_id)
     logger.info(
-        f"Invalidated roles cache for user {user_id} in organization {organization_id}"
+        f"Invalidated {user_count + org_count} cache entries for user {user_id} in organization {organization_id}"
     )
 
 
 async def invalidate_user_permissions_cache(user_id: UUID, organization_id: UUID):
     """Invalidate user permissions cache for a specific user and organization."""
-    await _invalidate_cache_pattern(f"cache:*{user_id}*permissions*{organization_id}*")
+    user_count = await invalidate_user_cache(user_id)
+    org_count = await invalidate_organization_cache(organization_id)
     logger.info(
-        f"Invalidated permissions cache for user {user_id} in organization {organization_id}"
+        f"Invalidated {user_count + org_count} cache entries for user {user_id} in organization {organization_id}"
     )
 
 
 async def invalidate_user_organization_cache(user_id: UUID):
     """Invalidate user organization cache for a specific user."""
-    # We need to get a reference to the actual service methods to invalidate
-    # For now, use pattern-based invalidation
-    await _invalidate_cache_pattern(f"cache:*user_org_id:{user_id}*")
-    await _invalidate_cache_pattern(f"cache:*user_org_data:{user_id}*")
-    logger.info(f"Invalidated organization cache for user {user_id}")
+    return await invalidate_user_cache(user_id)
 
 
 async def invalidate_plan_tier_cache(user_id: UUID, organization_id: UUID):
-    """Invalidate all caches that might be affected by a plan tier change."""
-    logger.info(
-        f"Invalidating all caches for plan tier change: user {user_id}, org {organization_id}"
-    )
-
-    # Clear user-specific caches
-    await invalidate_user_auth_cache(user_id)
-    await invalidate_onboarding_cache(user_id)
-    await invalidate_user_organization_cache(user_id)
+    """Invalidate all caches for a user and organization."""
+    logger.info(f"Clearing caches for user {user_id}, org {organization_id}")
+    await invalidate_user_cache(user_id)
     await invalidate_organization_cache(organization_id)
-
-    # Clear role and permission caches
-    await invalidate_user_roles_cache(user_id, organization_id)
-    await invalidate_user_permissions_cache(user_id, organization_id)
-
-    # Clear any plan-tier specific caches
-    await _invalidate_cache_pattern(f"cache:*{user_id}*plan*")
-    await _invalidate_cache_pattern(f"cache:*{organization_id}*plan*")
-
-    # Clear any auth-related caches that might include plan tier info
-    await _invalidate_cache_pattern(f"cache:*{user_id}*auth*")
-    await _invalidate_cache_pattern(f"cache:*{organization_id}*auth*")
-
-    # Clear API key caches that might be affected
-    await _invalidate_cache_pattern(f"cache:*{user_id}*api_key*")
-    await _invalidate_cache_pattern(f"cache:*{organization_id}*api_key*")
-
-    logger.info("Completed comprehensive cache invalidation for plan tier change")
+    logger.info("Cache invalidation complete")

@@ -37,6 +37,7 @@ class StripePaymentService(BaseService):
     def __init__(self, db):
         super().__init__(db)
         stripe.api_key = StripeSettings().STRIPE_SECRET_KEY.get_secret_value()
+        stripe.api_version = "2025-09-30.clover"
 
     def get_subscription_package_config(self, package: SubscriptionPackage) -> dict:
         return SUBSCRIPTION_PACKAGES.get(package, {})
@@ -175,23 +176,36 @@ class StripePaymentService(BaseService):
             # after creation via webhook to avoid Stripe billing interval conflicts
             line_items = [{"price": price_id, "quantity": 1}]
 
-            checkout_session = stripe.checkout.Session.create(
-                customer=customer_id,
-                payment_method_types=["card"],
-                line_items=line_items,
-                mode=(
+            # Prepare session parameters
+            session_params = {
+                "customer": customer_id,
+                "payment_method_types": ["card"],
+                "line_items": line_items,
+                "mode": (
                     "subscription"
                     if product_type == StripeProductType.SUBSCRIPTION
                     else "payment"
                 ),
-                success_url=success_url,
-                cancel_url=cancel_url,
-                metadata={
+                "success_url": success_url,
+                "cancel_url": cancel_url,
+                "metadata": {
                     "organization_id": str(organization_id),
                     "product_type": product_type.value,
                 },
-                allow_promotion_codes=True,
-            )
+                "allow_promotion_codes": True,
+                "tax_id_collection": {"enabled": True},
+                "customer_update": {
+                    "address": "auto",
+                    "name": "auto",
+                },
+            }
+
+            if product_type == StripeProductType.SUBSCRIPTION:
+                session_params["subscription_data"] = {
+                    "billing_mode": {"type": "flexible"},
+                }
+
+            checkout_session = stripe.checkout.Session.create(**session_params)
             return checkout_session
         except StripeError as e:
             raise ValueError(f"Failed to create checkout session: {e}")
@@ -351,35 +365,22 @@ class StripePaymentService(BaseService):
                 current_period_end=now,
             )
             self.db.add(subscription)
-            await self.db.commit()
-            self.logger.info(
-                f"Created minimal subscription record for {subscription_id}, "
-                f"will be updated by customer.subscription.created"
-            )
-
-        # Add overage metered price if package has one
-        if package_info.overage_price_id:
             try:
-                stripe_subscription = stripe.Subscription.retrieve(subscription_id)
-                items = stripe_subscription.get("items", {}).get("data", [])
-                has_overage_price = any(
-                    item["price"].get("recurring", {}).get("usage_type") == "metered"
-                    for item in items
+                await self.db.commit()
+                self.logger.info(
+                    f"Created minimal subscription record for {subscription_id}, "
+                    f"will be updated by customer.subscription.created"
+                )
+            except Exception:
+                # Handle race condition where customer.subscription.created arrived first
+                await self.db.rollback()
+                self.logger.info(
+                    f"Subscription {subscription_id} already exists (race condition with customer.subscription.created)"
                 )
 
-                if not has_overage_price:
-                    stripe.SubscriptionItem.create(
-                        subscription=subscription_id,
-                        price=package_info.overage_price_id,
-                        proration_behavior="none",
-                    )
-                    self.logger.info(
-                        f"Added overage price {package_info.overage_price_id} to subscription {subscription_id}"
-                    )
-            except StripeError as e:
-                self.logger.error(
-                    f"Failed to add overage price to subscription {subscription_id}: {e}"
-                )
+        # Note: Overage price addition is handled in customer.subscription.created webhook
+        # to avoid interval mismatch errors (yearly subscription + monthly overage price)
+        # and ensure proper timing after Stripe fully creates the subscription
 
     async def _process_topup_checkout(
         self, organization, session_data, price_id: str
@@ -532,22 +533,49 @@ class StripePaymentService(BaseService):
             and not subscription.stripe_item_overage_id
             and package_info.overage_price_id
         )
+
         if needs_overage:
-            try:
-                subscription_item = stripe.SubscriptionItem.create(
-                    subscription=subscription_data["id"],
-                    price=package_info.overage_price_id,
-                    proration_behavior="none",
+            # Check subscription billing mode
+            billing_mode = subscription_data.get("billing_mode", {})
+            is_flexible = billing_mode.get("type") == "flexible"
+
+            # Detect subscription interval for classic mode validation
+            subscription_interval = None
+            for item in items:
+                if item["price"].get("recurring", {}).get("usage_type") != "metered":
+                    subscription_interval = (
+                        item["price"].get("recurring", {}).get("interval")
+                    )
+                    break
+
+            # In classic mode, we can't mix different intervals
+            if not is_flexible and subscription_interval == "year":
+                self.logger.warning(
+                    f"Skipping overage price addition for yearly subscription {subscription_data['id']}. "
+                    f"Subscription is in classic billing mode which doesn't support mixing yearly base and monthly overage prices. "
+                    f"To enable overage charges, update this subscription to flexible billing mode in Stripe dashboard "
+                    f"or via API: stripe.Subscription.modify('{subscription_data['id']}', billing_mode='flexible')"
                 )
-                subscription.stripe_item_overage_id = subscription_item["id"]
-                subscription.stripe_price_overage_id = package_info.overage_price_id
-                self.logger.info(
-                    f"Added overage price {package_info.overage_price_id} to subscription {subscription_data['id']}"
-                )
-            except StripeError as e:
-                self.logger.error(
-                    f"Failed to add overage price to subscription {subscription_data['id']}: {e}"
-                )
+            else:
+                # Either flexible mode or compatible interval - add overage price
+                try:
+                    subscription_item = stripe.SubscriptionItem.create(
+                        subscription=subscription_data["id"],
+                        price=package_info.overage_price_id,
+                        proration_behavior="none",
+                    )
+                    subscription.stripe_item_overage_id = subscription_item["id"]
+                    subscription.stripe_price_overage_id = package_info.overage_price_id
+                    mode_info = (
+                        "flexible mode" if is_flexible else "compatible interval"
+                    )
+                    self.logger.info(
+                        f"Added overage price {package_info.overage_price_id} to subscription {subscription_data['id']} ({mode_info})"
+                    )
+                except StripeError as e:
+                    self.logger.error(
+                        f"Failed to add overage price to subscription {subscription_data['id']}: {e}"
+                    )
 
         await self.db.commit()
 
@@ -572,17 +600,36 @@ class StripePaymentService(BaseService):
         current_period_start = subscription_data.get("current_period_start")
         current_period_end = subscription_data.get("current_period_end")
 
+        # Track metered item period separately for monthly credit grants
+        metered_period_start = None
+        metered_period_end = None
+
         if not current_period_start or not current_period_end:
-            # Try to get from first subscription item
+            # Try to get from first subscription item (base subscription)
             items = subscription_data.get("items", {}).get("data", [])
             if items:
-                first_item = items[0]
-                current_period_start = first_item.get("current_period_start")
-                current_period_end = first_item.get("current_period_end")
+                for item in items:
+                    price_info = item.get("price", {})
+                    recurring = price_info.get("recurring", {})
+                    usage_type = recurring.get("usage_type")
+
+                    if usage_type == "metered":
+                        # Track metered item period for monthly credit grants
+                        metered_period_start = item.get("current_period_start")
+                        metered_period_end = item.get("current_period_end")
+                    else:
+                        # Use base item for overall subscription tracking
+                        if not current_period_start:
+                            current_period_start = item.get("current_period_start")
+                        if not current_period_end:
+                            current_period_end = item.get("current_period_end")
 
         # Map Stripe status to our status
         stripe_status = subscription_data["status"]
         cancel_at_period_end = subscription_data.get("cancel_at_period_end", False)
+        cancel_at = subscription_data.get(
+            "cancel_at"
+        )  # Scheduled cancellation timestamp
 
         if stripe_status == "active":
             subscription.status = SubscriptionStatus.ACTIVE
@@ -599,11 +646,16 @@ class StripePaymentService(BaseService):
         else:
             subscription.status = SubscriptionStatus.INACTIVE
 
-        # Track if subscription is scheduled to cancel at period end
-        subscription.cancel_at_period_end = cancel_at_period_end
+        # Track if subscription is scheduled to cancel
+        # Either cancel_at_period_end flag OR cancel_at timestamp being set means scheduled cancellation
+        subscription.cancel_at_period_end = cancel_at_period_end or (
+            cancel_at is not None
+        )
 
         # Check for billing period fields and detect if period changed
         period_changed = False
+        metered_period_changed = False
+
         if current_period_start and current_period_end:
             new_period_end = datetime.fromtimestamp(current_period_end, timezone.utc)
             period_changed = new_period_end != old_period_end
@@ -612,6 +664,29 @@ class StripePaymentService(BaseService):
                 current_period_start, timezone.utc
             )
             subscription.current_period_end = new_period_end
+
+        # For yearly subscriptions with monthly metered usage, detect monthly period changes
+        if metered_period_start and metered_period_end:
+            metered_end_dt = datetime.fromtimestamp(metered_period_end, timezone.utc)
+
+            # Check if we have a monthly metered period change (for yearly subscriptions)
+            # This allows monthly credit grants even when the yearly base period hasn't changed
+            existing_grant_stmt = select(CreditGrant).where(
+                CreditGrant.subscription_id == subscription.id,
+                CreditGrant.grant_type == GrantType.SUBSCRIPTION,
+                CreditGrant.expires_at == metered_end_dt,
+            )
+            existing_grant_result = await self.db.execute(existing_grant_stmt)
+            has_grant_for_period = (
+                existing_grant_result.scalar_one_or_none() is not None
+            )
+
+            if not has_grant_for_period:
+                metered_period_changed = True
+                self.logger.info(
+                    f"Detected new monthly billing period for metered item in subscription {subscription_id}: "
+                    f"{datetime.fromtimestamp(metered_period_start, timezone.utc)} to {metered_end_dt}"
+                )
 
         # Update organization plan_tier based on subscription status
         organization = await self._get_subscription_organization(subscription)
@@ -634,10 +709,15 @@ class StripePaymentService(BaseService):
                 # Active subscriptions get their target tier (even if scheduled to cancel later)
                 await self._update_organization_plan_tier(organization, subscription)
 
-                if cancel_at_period_end:
+                if subscription.cancel_at_period_end:
+                    cancel_info = (
+                        f"at {datetime.fromtimestamp(cancel_at, timezone.utc)}"
+                        if cancel_at
+                        else f"at period end ({subscription.current_period_end})"
+                    )
                     self.logger.info(
-                        f"Subscription {subscription_id} is scheduled to cancel at period end. "
-                        f"Organization {organization.id} will remain at current tier until {subscription.current_period_end}"
+                        f"Subscription {subscription_id} is scheduled to cancel {cancel_info}. "
+                        f"Organization {organization.id} will remain at current tier and continue receiving credits until cancellation."
                     )
             elif subscription.status == SubscriptionStatus.PAST_DUE:
                 self.logger.warning(
@@ -667,12 +747,21 @@ class StripePaymentService(BaseService):
 
         await self.db.commit()
 
-        # Only create new usage period if the billing period has changed (renewal)
+        # Create new usage period/credit grants if billing period changed
         if period_changed:
             self.logger.info(
-                f"Billing period changed for subscription {subscription_id}, creating new usage period"
+                f"Base billing period changed for subscription {subscription_id}, creating new usage period"
             )
             await self._create_usage_period(subscription)
+        elif metered_period_changed:
+            # For yearly subscriptions with monthly metered usage, grant monthly credits
+            # without creating a new usage period (usage period follows yearly cycle)
+            self.logger.info(
+                f"Monthly metered period changed for subscription {subscription_id}, granting monthly credits"
+            )
+            await self._grant_monthly_credits_for_metered_period(
+                subscription, metered_period_start, metered_period_end
+            )
 
     async def _handle_subscription_deleted(self, subscription_data: dict) -> None:
         """Handle subscription cancellation."""
@@ -718,6 +807,7 @@ class StripePaymentService(BaseService):
                 )
             )
             .order_by(UsagePeriod.created_at.desc())
+            .limit(1)
         )
         result = await self.db.execute(stmt)
         usage_period = result.scalar_one_or_none()
@@ -993,7 +1083,31 @@ class StripePaymentService(BaseService):
                 ),
             )
             self.db.add(subscription)
-            await self.db.commit()
+
+            try:
+                await self.db.commit()
+                self.logger.info(
+                    f"Created new subscription {stripe_subscription_id} for organization {organization_id}"
+                )
+            except Exception as e:
+                # Handle race condition - another webhook may have created it
+                await self.db.rollback()
+                if (
+                    "duplicate key" in str(e).lower()
+                    or "unique constraint" in str(e).lower()
+                ):
+                    self.logger.info(
+                        f"Subscription {stripe_subscription_id} already exists (race condition), fetching existing"
+                    )
+                    # Fetch the existing subscription
+                    stmt = select(Subscription).where(
+                        Subscription.stripe_subscription_id == stripe_subscription_id
+                    )
+                    result = await self.db.execute(stmt)
+                    subscription = result.scalar_one()
+                else:
+                    # Re-raise if it's not a duplicate key error
+                    raise
 
         return subscription
 
@@ -1049,6 +1163,60 @@ class StripePaymentService(BaseService):
         self.logger.info(f"Created usage period for subscription {subscription.id}")
 
         await self.db.commit()
+
+    async def _grant_monthly_credits_for_metered_period(
+        self,
+        subscription: Subscription,
+        period_start: int,
+        period_end: int,
+    ) -> None:
+        """Grant monthly credits for metered billing period in yearly subscriptions.
+
+        This handles the case where a yearly subscription has a monthly metered component.
+        Credits are granted monthly even though the base subscription period is yearly.
+        """
+        period_start_dt = datetime.fromtimestamp(period_start, timezone.utc)
+        period_end_dt = datetime.fromtimestamp(period_end, timezone.utc)
+
+        # Check if credit grant already exists for this period
+        existing_grant_stmt = select(CreditGrant).where(
+            CreditGrant.subscription_id == subscription.id,
+            CreditGrant.grant_type == GrantType.SUBSCRIPTION,
+            CreditGrant.expires_at == period_end_dt,
+        )
+        existing_grant_result = await self.db.execute(existing_grant_stmt)
+        existing_grant = existing_grant_result.scalar_one_or_none()
+
+        if existing_grant:
+            self.logger.debug(
+                f"Credit grant already exists for period ending {period_end_dt}"
+            )
+            return
+
+        # Create monthly credit grant only if access is not paused
+        if not subscription.pause_access:
+            credit_grant = CreditGrant(
+                id=uuid4(),
+                organization_id=subscription.organization_id,
+                subscription_id=subscription.id,
+                grant_type=GrantType.SUBSCRIPTION,
+                description=f"Monthly Subscription Credits - {period_start_dt.strftime('%B %Y')}",
+                amount=subscription.monthly_allowance,
+                remaining_amount=subscription.monthly_allowance,
+                expires_at=period_end_dt,
+            )
+            self.db.add(credit_grant)
+            await self.db.commit()
+
+            self.logger.info(
+                f"Granted {subscription.monthly_allowance} credits for monthly period "
+                f"{period_start_dt} to {period_end_dt} in subscription {subscription.id}"
+            )
+        else:
+            self.logger.warning(
+                f"Skipped monthly credit grant for subscription {subscription.id} - "
+                f"access is paused due to payment issues"
+            )
 
     async def _create_missed_credit_grants(self, subscription: Subscription) -> None:
         """Create credit grants that were missed while access was paused."""
