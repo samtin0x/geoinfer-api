@@ -2,6 +2,7 @@ from fastapi import APIRouter
 
 from src.api.analytics.router import router as analytics_router
 from src.api.billing.router import router as billing_router
+from src.api.email.router import router as email_router
 from src.api.health.router import router as health_router, root_router
 from src.api.credits.router import router as credits_router
 from src.api.invitation.router import router as invitation_router
@@ -20,6 +21,7 @@ v1_router = APIRouter(prefix="/v1")
 v1_router.include_router(analytics_router)
 v1_router.include_router(billing_router)
 v1_router.include_router(credits_router)
+v1_router.include_router(email_router)
 v1_router.include_router(invitation_router)
 v1_router.include_router(organization_router)
 v1_router.include_router(keys_router)
