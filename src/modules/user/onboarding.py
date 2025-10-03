@@ -176,7 +176,7 @@ class UserOnboardingService(BaseService):
 
             email_data = render_email(template_name="invite", locale=valid_locale)
 
-            from_address = f"{email_settings.EMAIL_FROM_NAME} <noreply@{email_settings.EMAIL_FROM_DOMAIN}>"
+            from_address = f"{email_settings.EMAIL_FROM_NAME} <{email_settings.EMAIL_FROM_ADDRESS}@{email_settings.EMAIL_FROM_DOMAIN}>"
 
             response = resend.Emails.send(
                 {

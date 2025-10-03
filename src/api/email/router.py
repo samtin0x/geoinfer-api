@@ -40,7 +40,7 @@ async def send_email(
             locale=email_request.locale,
         )
 
-        from_address = f"{email_settings.EMAIL_FROM_NAME} <noreply@{email_settings.EMAIL_FROM_DOMAIN}>"
+        from_address = f"{email_settings.EMAIL_FROM_NAME} <{email_settings.EMAIL_FROM_ADDRESS}@{email_settings.EMAIL_FROM_DOMAIN}>"
 
         response = resend.Emails.send(
             {

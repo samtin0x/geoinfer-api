@@ -13,3 +13,4 @@ class EmailSettings(BaseSettings):
     RESEND_API_KEY: str = ""
     EMAIL_FROM_DOMAIN: str = "mail.geoinfer.com"
     EMAIL_FROM_NAME: str = "GeoInfer"
+    EMAIL_FROM_ADDRESS: str = "info"
