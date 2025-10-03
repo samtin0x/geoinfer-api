@@ -48,38 +48,76 @@ class CreditConsumptionService(BaseService):
     ) -> tuple[bool, str]:
         """
         Consume credits following the business logic:
-        1. Subscription allowance
-        2. Wallet top-ups (earliest expiry first)
-        3. Overage (if enabled and cap not reached)
+        1. Subscription allowance (if subscription exists)
+        2. Wallet top-ups (earliest expiry first) - works without subscription
+        3. Overage (if enabled and cap not reached, requires subscription)
 
         Returns: (success: bool, reason: str)
         """
-        # Get active subscription for organization
+        # Get active subscription for organization (optional - wallet credits can work without it)
         subscription = await self._get_active_subscription(organization_id)
-        if not subscription:
-            return False, "No active subscription found"
 
-        if subscription.pause_access:
+        # Check if subscription is paused
+        if subscription and subscription.pause_access:
             return False, "Account access paused due to payment issues"
 
-        # Get current usage period and alert settings in parallel for better performance
-        usage_period, alert_settings = await self._get_usage_period_and_alert_settings(
-            subscription.id
-        )
-        if not usage_period:
-            return False, "No active usage period found"
+        # Initialize variables for subscription-specific features
+        usage_period = None
+        alert_settings = None
+        organization_alert_percentages = []
 
-        organization_alert_percentages = (
-            alert_settings.alert_thresholds if alert_settings else []
-        )
+        # Get usage period and alert settings if subscription exists
+        if subscription:
+            usage_period, alert_settings = (
+                await self._get_usage_period_and_alert_settings(subscription.id)
+            )
+            if not usage_period:
+                return False, "No active usage period found"
+
+            organization_alert_percentages = (
+                alert_settings.alert_thresholds if alert_settings else []
+            )
+
+        # Pre-flight check: Ensure we can fulfill the request before consuming anything
+        # Calculate available credits from all sources
+        subscription_grants = []
+        wallet_grants = []
+        available_subscription = 0
+        available_wallet = 0
+
+        if subscription:
+            subscription_grants = await self._get_available_subscription_grants(
+                subscription.id
+            )
+            available_subscription = sum(
+                g.remaining_amount for g in subscription_grants
+            )
+
+        wallet_grants = await self._get_available_wallet_grants(organization_id)
+        available_wallet = sum(g.remaining_amount for g in wallet_grants)
+
+        total_available = available_subscription + available_wallet
+        overage_needed = max(0, credits_needed - total_available)
+
+        # Check if overage would be needed and if it's available
+        if overage_needed > 0:
+            if not subscription or not subscription.overage_enabled:
+                return False, "No credits available"
+
+            effective_cap = self._calculate_effective_cap(subscription)
+            if (
+                effective_cap != float("inf")
+                and usage_period.overage_used + overage_needed > effective_cap
+            ):
+                return (
+                    False,
+                    f"Overage cap of {int(effective_cap)} credits exceeded",
+                )
 
         # Track consumption details
         remaining_needed = credits_needed
 
-        # 1. Consume from subscription allowance
-        subscription_grants = await self._get_available_subscription_grants(
-            subscription.id
-        )
+        # 1. Consume from subscription allowance (if subscription exists)
         for grant in subscription_grants:
             if remaining_needed <= 0:
                 break
@@ -100,61 +138,46 @@ class CreditConsumptionService(BaseService):
                 api_key_id=api_key_id,
             )
 
-        # 2. Consume from wallet top-ups (earliest expiry first)
+        # 2. Consume from wallet top-ups (earliest expiry first) - works without subscription
+        for grant in wallet_grants:
+            if remaining_needed <= 0:
+                break
+
+            available = grant.remaining_amount
+            to_consume = min(available, remaining_needed)
+            grant.remaining_amount -= to_consume
+            remaining_needed -= to_consume
+
+            # Record consumption
+            await self._record_credit_consumption(
+                organization_id=organization_id,
+                credits_consumed=to_consume,
+                grant_type="topup",
+                topup_id=grant.topup_id,
+                grant_id=grant.id,
+                user_id=user_id,
+                api_key_id=api_key_id,
+            )
+
+        # 3. Use overage if enabled and needed (requires subscription)
         if remaining_needed > 0:
-            wallet_grants = await self._get_available_wallet_grants(organization_id)
-            for grant in wallet_grants:
-                if remaining_needed <= 0:
-                    break
+            # We already validated overage is available in pre-flight check
+            usage_period.overage_used += remaining_needed
+            remaining_needed = 0
 
-                available = grant.remaining_amount
-                to_consume = min(available, remaining_needed)
-                grant.remaining_amount -= to_consume
-                remaining_needed -= to_consume
+        # Calculate usage percentage for potential alerts (only if subscription exists)
+        if subscription and organization_alert_percentages:
+            initial_monthly_used = (
+                subscription.monthly_allowance
+                - await self._get_remaining_subscription_credits(subscription.id)
+            )
+            initial_usage_percentage = (
+                initial_monthly_used / subscription.monthly_allowance
+                if subscription.monthly_allowance > 0
+                else 0
+            )
 
-                # Record consumption
-                await self._record_credit_consumption(
-                    organization_id=organization_id,
-                    credits_consumed=to_consume,
-                    grant_type="topup",
-                    topup_id=grant.topup_id,
-                    grant_id=grant.id,
-                    user_id=user_id,
-                    api_key_id=api_key_id,
-                )
-
-        # 3. Use overage if enabled and needed
-        if remaining_needed > 0:
-            if subscription.overage_enabled:
-                # Check if we've reached the cap
-                effective_cap = self._calculate_effective_cap(subscription)
-                if (
-                    effective_cap != float("inf")
-                    and usage_period.overage_used + remaining_needed > effective_cap
-                ):
-                    return (
-                        False,
-                        f"Overage cap of {int(effective_cap)} credits exceeded",
-                    )
-
-                # Record overage usage (no usage record created since overage isn't a grant)
-                usage_period.overage_used += remaining_needed
-            else:
-                return False, "No credits available and overage disabled"
-
-        # Calculate usage percentage for potential alerts (before consumption changes the numbers)
-        initial_monthly_used = (
-            subscription.monthly_allowance
-            - await self._get_remaining_subscription_credits(subscription.id)
-        )
-        initial_usage_percentage = (
-            initial_monthly_used / subscription.monthly_allowance
-            if subscription.monthly_allowance > 0
-            else 0
-        )
-
-        # Check for usage alerts before consumption to get baseline
-        if organization_alert_percentages:
+            # Check for usage alerts before consumption to get baseline
             await self._check_and_record_alerts(
                 subscription, initial_usage_percentage, organization_alert_percentages
             )

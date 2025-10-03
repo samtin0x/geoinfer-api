@@ -212,7 +212,7 @@ class TestCreditConsumptionService:
         )
 
         assert success is False
-        assert reason == "No credits available and overage disabled"
+        assert reason == "No credits available"
 
         # Verify no credits were consumed
         await service.db.refresh(subscription_credit_grant)
@@ -285,7 +285,7 @@ class TestCreditConsumptionService:
     async def test_consume_credits_no_active_subscription(
         self, service, test_organization
     ):
-        """Test credit consumption fails when no active subscription exists."""
+        """Test credit consumption fails when no active subscription or wallet credits exist."""
         credits_needed = 100
 
         success, reason = await service.consume_credits(
@@ -293,7 +293,49 @@ class TestCreditConsumptionService:
         )
 
         assert success is False
-        assert reason == "No active subscription found"
+        assert reason == "No credits available"
+
+    @pytest.mark.asyncio
+    async def test_consume_credits_with_wallet_no_subscription(
+        self, service, test_organization, db_session
+    ):
+        """Test credit consumption succeeds with wallet credits even without active subscription."""
+        # Create a trial credit grant (wallet credit) without subscription
+        trial_topup = await TopUpFactory.create_async(
+            db_session,
+            organization_id=test_organization.id,
+            description="Trial Credits",
+            price_paid=0.0,
+            credits_purchased=50,
+            package_type=GrantType.TRIAL,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        )
+
+        trial_grant = await CreditGrantFactory.create_async(
+            db_session,
+            organization_id=test_organization.id,
+            topup_id=trial_topup.id,
+            grant_type=GrantType.TRIAL,
+            description="Trial Credits",
+            amount=50,
+            remaining_amount=50,
+            expires_at=datetime.now(timezone.utc) + timedelta(days=30),
+        )
+        await db_session.commit()
+
+        credits_needed = 25
+
+        success, reason = await service.consume_credits(
+            organization_id=test_organization.id, credits_needed=credits_needed
+        )
+
+        # Should succeed without subscription because wallet credits are available
+        assert success is True
+        assert reason == "Credits consumed successfully"
+
+        # Verify grant was consumed
+        await db_session.refresh(trial_grant)
+        assert trial_grant.remaining_amount == 25
 
     @pytest.mark.asyncio
     async def test_consume_credits_subscription_paused(
@@ -349,11 +391,13 @@ class TestCreditConsumptionService:
         assert success is True
 
         # Verify usage record includes user and API key
-        usage_records = await service.db.execute(
-            "SELECT * FROM usage_records WHERE organization_id = :org_id",
-            {"org_id": organization_id},
+        from sqlalchemy import select
+        from src.database.models import UsageRecord
+
+        result = await service.db.execute(
+            select(UsageRecord).where(UsageRecord.organization_id == organization_id)
         )
-        records = usage_records.fetchall()
+        records = result.scalars().all()
         assert len(records) == 1
         assert records[0].user_id == user_id
         assert records[0].api_key_id == api_key_id
@@ -431,15 +475,15 @@ class TestCreditConsumptionService:
         )
 
         assert success is False
-        assert reason == "No credits available and overage disabled"
+        assert reason == "No credits available"
 
         # Verify expired grant was not used
         await service.db.refresh(expired_grant)
         assert expired_grant.remaining_amount == 100  # Unchanged
 
-        # Verify valid grant was fully consumed
+        # Verify valid grant was not consumed (pre-flight check prevents partial consumption)
         await service.db.refresh(valid_grant)
-        assert valid_grant.remaining_amount == 0
+        assert valid_grant.remaining_amount == 50  # Unchanged
 
     @pytest.mark.asyncio
     async def test_consume_credits_priority_order_subscription_first(
