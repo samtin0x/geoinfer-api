@@ -66,10 +66,18 @@ class R2Client:
         image_data: bytes,
         organization_id: UUID,
         filename: str,
+        ip_address: str | None = None,
     ) -> str | None:
         key = self._generate_key(organization_id, image_data, filename)
         extension = self._get_extension_from_filename(filename)
         content_type = self._get_content_type(extension)
+
+        metadata = {}
+        if ip_address:
+            metadata["ip-address"] = ip_address
+
+        if filename:
+            metadata["original-filename"] = filename
 
         try:
             session = self._get_session()
@@ -82,6 +90,7 @@ class R2Client:
                     Key=key,
                     Body=image_data,
                     ContentType=content_type,
+                    Metadata=metadata,
                 )
 
                 # Construct R2 URL

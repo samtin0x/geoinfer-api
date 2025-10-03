@@ -27,7 +27,7 @@ from src.api.core.decorators.auth import require_permission
 from src.api.core.decorators.cost import cost
 
 # No auth decorators needed - auth middleware sets request.state
-from src.api.core.decorators.rate_limit import rate_limit
+from src.api.core.decorators.rate_limit import rate_limit, get_client_ip
 from src.api.core.dependencies import (
     AsyncSessionDep,
     CurrentUserAuthDep,
@@ -124,6 +124,7 @@ async def predict_location(
         image_data=file_content,
         organization_id=current_user.organization.id,
         filename=file.filename or "image.bin",
+        ip_address=get_client_ip(request),
     )
 
     return APIResponse.success(data=PredictionResponse(prediction=result))
@@ -166,6 +167,7 @@ async def trial_prediction(
         image_data=file_content,
         organization_id=TRIAL_ORG_ID,
         filename=file.filename or "image.bin",
+        ip_address=get_client_ip(request),
     )
 
     return APIResponse.success(data=result)

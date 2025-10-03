@@ -456,3 +456,178 @@ async def test_name_preservation_logic_edge_cases(db_session):
 
     assert updated_user2.name == "Existing Name"  # Should preserve existing name
     assert updated_user2.name != "JWT Override Name"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_welcome_email_sent_for_new_user(db_session):
+    """Test that welcome email is sent when a new user is created."""
+    service = UserOnboardingService(db_session)
+
+    user_id = uuid4()
+    email = "welcome-email@example.com"
+
+    with (
+        patch("stripe.Customer.create") as mock_stripe,
+        patch("src.utils.settings.stripe.StripeSettings") as mock_stripe_settings,
+        patch("resend.Emails.send") as mock_resend_send,
+        patch("src.utils.settings.email.EmailSettings") as mock_email_settings,
+        patch("src.api.core.constants.SHOULD_SEND_WELCOME_EMAIL", True),
+    ):
+        mock_settings = MagicMock()
+        mock_settings.STRIPE_SECRET_KEY.get_secret_value.return_value = "sk_test_fake"
+        mock_stripe_settings.return_value = mock_settings
+
+        mock_customer = MagicMock()
+        mock_customer.id = "cus_test_123"
+        mock_stripe.return_value = mock_customer
+
+        mock_email_cfg = MagicMock()
+        mock_email_cfg.RESEND_API_KEY = "re_test_key"
+        mock_email_cfg.EMAIL_FROM_NAME = "GeoInfer"
+        mock_email_cfg.EMAIL_FROM_DOMAIN = "mail.geoinfer.com"
+        mock_email_settings.return_value = mock_email_cfg
+
+        mock_resend_send.return_value = {"id": "email_123"}
+
+        user, organization = await service.ensure_user_onboarded(
+            user_id=user_id,
+            email=email,
+            name="Welcome User",
+            plan_tier=PlanTier.FREE,
+            locale="en",
+        )
+
+        assert user.id == user_id
+        assert user.email == email
+
+        mock_resend_send.assert_called_once()
+        call_args = mock_resend_send.call_args[0][0]
+        assert call_args["to"] == email
+        assert call_args["subject"] == "Welcome to GeoInfer Beta"
+        assert "onboarding" in [tag["value"] for tag in call_args["tags"]]
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_welcome_email_respects_locale(db_session):
+    """Test that welcome email uses the correct locale."""
+    service = UserOnboardingService(db_session)
+
+    user_id = uuid4()
+    email = "welcome-spanish@example.com"
+
+    with (
+        patch("stripe.Customer.create") as mock_stripe,
+        patch("src.utils.settings.stripe.StripeSettings") as mock_stripe_settings,
+        patch("resend.Emails.send") as mock_resend_send,
+        patch("src.utils.settings.email.EmailSettings") as mock_email_settings,
+        patch("src.api.core.constants.SHOULD_SEND_WELCOME_EMAIL", True),
+    ):
+        mock_settings = MagicMock()
+        mock_settings.STRIPE_SECRET_KEY.get_secret_value.return_value = "sk_test_fake"
+        mock_stripe_settings.return_value = mock_settings
+
+        mock_customer = MagicMock()
+        mock_customer.id = "cus_test_456"
+        mock_stripe.return_value = mock_customer
+
+        mock_email_cfg = MagicMock()
+        mock_email_cfg.RESEND_API_KEY = "re_test_key"
+        mock_email_cfg.EMAIL_FROM_NAME = "GeoInfer"
+        mock_email_cfg.EMAIL_FROM_DOMAIN = "mail.geoinfer.com"
+        mock_email_settings.return_value = mock_email_cfg
+
+        mock_resend_send.return_value = {"id": "email_456"}
+
+        user, organization = await service.ensure_user_onboarded(
+            user_id=user_id,
+            email=email,
+            name="Spanish User",
+            plan_tier=PlanTier.FREE,
+            locale="es",
+        )
+
+        assert user.locale == "es"
+
+        mock_resend_send.assert_called_once()
+        call_args = mock_resend_send.call_args[0][0]
+        assert call_args["to"] == email
+        assert call_args["subject"] == "Bienvenido a GeoInfer Beta"
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_welcome_email_disabled_by_flag(db_session):
+    """Test that welcome email is not sent when SHOULD_SEND_WELCOME_EMAIL is False."""
+    service = UserOnboardingService(db_session)
+
+    user_id = uuid4()
+    email = "no-welcome@example.com"
+
+    with (
+        patch("stripe.Customer.create") as mock_stripe,
+        patch("src.utils.settings.stripe.StripeSettings") as mock_stripe_settings,
+        patch("resend.Emails.send") as mock_resend_send,
+        patch("src.api.core.constants.SHOULD_SEND_WELCOME_EMAIL", False),
+    ):
+        mock_settings = MagicMock()
+        mock_settings.STRIPE_SECRET_KEY.get_secret_value.return_value = "sk_test_fake"
+        mock_stripe_settings.return_value = mock_settings
+
+        mock_customer = MagicMock()
+        mock_customer.id = "cus_test_789"
+        mock_stripe.return_value = mock_customer
+
+        user, organization = await service.ensure_user_onboarded(
+            user_id=user_id,
+            email=email,
+            name="No Welcome User",
+            plan_tier=PlanTier.FREE,
+            locale="en",
+        )
+
+        assert user.id == user_id
+
+        mock_resend_send.assert_not_called()
+
+
+@pytest.mark.asyncio(loop_scope="session")
+async def test_welcome_email_continues_on_failure(db_session):
+    """Test that onboarding continues even if welcome email fails."""
+    service = UserOnboardingService(db_session)
+
+    user_id = uuid4()
+    email = "failing-email@example.com"
+
+    with (
+        patch("stripe.Customer.create") as mock_stripe,
+        patch("src.utils.settings.stripe.StripeSettings") as mock_stripe_settings,
+        patch("resend.Emails.send") as mock_resend_send,
+        patch("src.utils.settings.email.EmailSettings") as mock_email_settings,
+        patch("src.api.core.constants.SHOULD_SEND_WELCOME_EMAIL", True),
+    ):
+        mock_settings = MagicMock()
+        mock_settings.STRIPE_SECRET_KEY.get_secret_value.return_value = "sk_test_fake"
+        mock_stripe_settings.return_value = mock_settings
+
+        mock_customer = MagicMock()
+        mock_customer.id = "cus_test_999"
+        mock_stripe.return_value = mock_customer
+
+        mock_email_cfg = MagicMock()
+        mock_email_cfg.RESEND_API_KEY = "re_test_key"
+        mock_email_cfg.EMAIL_FROM_NAME = "GeoInfer"
+        mock_email_cfg.EMAIL_FROM_DOMAIN = "mail.geoinfer.com"
+        mock_email_settings.return_value = mock_email_cfg
+
+        mock_resend_send.side_effect = Exception("Email service error")
+
+        user, organization = await service.ensure_user_onboarded(
+            user_id=user_id,
+            email=email,
+            name="Failing Email User",
+            plan_tier=PlanTier.FREE,
+            locale="en",
+        )
+
+        assert user.id == user_id
+        assert user.email == email
+        assert organization.plan_tier == PlanTier.FREE
