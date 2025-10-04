@@ -117,6 +117,7 @@ class UserManagementService(BaseService):
                 email=user.email,
                 name=user.name,
                 plan_tier=PlanTier.FREE,
+                locale=user.locale,
             )
 
         # Set user's organization to their user organization (user ID)

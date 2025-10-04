@@ -1,5 +1,3 @@
-"""Email settings configuration."""
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from src.utils.logger import get_logger

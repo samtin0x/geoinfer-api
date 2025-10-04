@@ -4,11 +4,11 @@ def extract_user_data_from_jwt(payload: dict) -> dict:
 
     user_metadata = payload.get("user_metadata", {})
 
-    name = user_metadata.get("name") or user_metadata.get("full_name", "")
+    name = user_metadata.get("full_name") or user_metadata.get("name", "")
 
     avatar_url = user_metadata.get("avatar_url") or user_metadata.get("picture")
 
-    locale = payload.get("locale")
+    locale = user_metadata.get("locale") or payload.get("locale")
 
     return {
         "user_id": user_id,

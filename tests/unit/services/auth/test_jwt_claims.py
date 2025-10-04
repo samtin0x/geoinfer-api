@@ -99,3 +99,21 @@ def test_user_id_extraction(payload, expected_user_id):
     """Test user ID extraction with different scenarios."""
     user_data = extract_user_data_from_jwt(payload)
     assert user_data["user_id"] == expected_user_id
+
+
+@pytest.mark.parametrize(
+    "payload,expected_locale",
+    [
+        ({"user_metadata": {"locale": "en"}}, "en"),
+        ({"user_metadata": {"locale": "es"}}, "es"),
+        ({"user_metadata": {"locale": "fr"}}, "fr"),
+        ({"locale": "de", "user_metadata": {}}, "de"),
+        ({"user_metadata": {"locale": "pt"}, "locale": "de"}, "pt"),
+        ({"user_metadata": {}}, None),
+        ({}, None),
+    ],
+)
+def test_locale_extraction_from_user_metadata(payload, expected_locale):
+    """Test locale extraction from user_metadata and top-level payload with fallback."""
+    user_data = extract_user_data_from_jwt(payload)
+    assert user_data["locale"] == expected_locale
