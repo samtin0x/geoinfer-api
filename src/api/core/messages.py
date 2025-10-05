@@ -79,6 +79,10 @@ class MessageCode(str, Enum):
     # Prediction errors
     PREDICTION_FAILED = "PREDICTION_FAILED"
     IMAGE_PROCESSING_ERROR = "IMAGE_PROCESSING_ERROR"
+    PREDICTION_NOT_FOUND = "PREDICTION_NOT_FOUND"
+    SHARE_CREATED = "SHARE_CREATED"
+    SHARE_REVOKED = "SHARE_REVOKED"
+    FEEDBACK_ADDED = "FEEDBACK_ADDED"
 
     # Organization & User Management (additional)
     ORG_NOT_FOUND = "ORG_NOT_FOUND"
@@ -160,6 +164,10 @@ DEFAULT_MESSAGES = {
     # Prediction errors
     MessageCode.PREDICTION_FAILED: "Prediction failed",
     MessageCode.IMAGE_PROCESSING_ERROR: "Error processing image",
+    MessageCode.PREDICTION_NOT_FOUND: "Prediction not found",
+    MessageCode.SHARE_CREATED: "Prediction shared successfully",
+    MessageCode.SHARE_REVOKED: "Share revoked successfully",
+    MessageCode.FEEDBACK_ADDED: "Feedback added successfully",
     # Organization & User Management (additional)
     MessageCode.ORG_NOT_FOUND: "Organization not found",
     MessageCode.USER_REMOVED_FROM_ORGANIZATION: "User removed from organization successfully",

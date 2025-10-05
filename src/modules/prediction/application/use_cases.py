@@ -36,7 +36,7 @@ async def predict_coordinates_from_upload(
     save_to_db: bool = True,
     credits_consumed: int | None = None,
     usage_type: UsageType | None = None,
-) -> PredictionResult:
+) -> tuple[PredictionResult, UUID]:
     """
     Predict GPS coordinates from uploaded image data via GPU server.
 
@@ -51,9 +51,10 @@ async def predict_coordinates_from_upload(
         save_to_db: Whether to save prediction to database
 
     Returns:
-        PredictionResult with multiple predictions and timing info
+        Tuple of (PredictionResult, prediction_id)
     """
     start_time = time.time()
+    prediction_id = uuid.uuid4()
 
     # Validate image data
     if not image_data:
@@ -73,6 +74,7 @@ async def predict_coordinates_from_upload(
         if save_to_db and db is not None and current_user is not None:
             await save_prediction_to_db(
                 db=db,
+                prediction_id=prediction_id,
                 user_id=current_user.user.id,
                 organization_id=current_user.organization.id,
                 api_key_id=(current_user.api_key.id if current_user.api_key else None),
@@ -81,7 +83,7 @@ async def predict_coordinates_from_upload(
                 usage_type=usage_type or UsageType.GEOINFER_GLOBAL_0_0_1,
             )
 
-        return result
+        return result, prediction_id
 
     except RuntimeError as e:
         # GPU server unavailable
@@ -102,17 +104,18 @@ async def predict_coordinates_from_upload(
 
 async def save_prediction_to_db(
     db: AsyncSession,
+    prediction_id: UUID,
     user_id: UUID | None,
     organization_id: UUID,
     api_key_id: UUID | None,
     processing_time_ms: int | None = None,
     credits_consumed: int | None = None,
     usage_type: UsageType = UsageType.GEOINFER_GLOBAL_0_0_1,
-) -> Prediction:
+) -> None:
     """Save prediction tracking to the database."""
 
     prediction = Prediction(
-        id=uuid.uuid4(),
+        id=prediction_id,
         user_id=user_id,
         organization_id=organization_id,
         api_key_id=api_key_id,
@@ -123,9 +126,6 @@ async def save_prediction_to_db(
 
     db.add(prediction)
     await db.commit()
-    await db.refresh(prediction)
-
-    return prediction
 
 
 def calculate_haversine_distance(

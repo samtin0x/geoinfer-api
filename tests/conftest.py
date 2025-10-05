@@ -330,6 +330,27 @@ async def test_api_key(db_session: AsyncSession, test_user: User) -> tuple[ApiKe
     return api_key, plain_key
 
 
+@pytest_asyncio.fixture
+async def test_prediction(
+    db_session: AsyncSession,
+    test_admin_user: User,
+    test_organization: Organization,
+):
+    """Create a test prediction."""
+    from tests.factories import PredictionFactory
+
+    prediction = await PredictionFactory.create_async(
+        db_session,
+        id=uuid4(),
+        user_id=test_admin_user.id,
+        organization_id=test_organization.id,
+        processing_time_ms=1500,
+    )
+    await db_session.commit()
+    await db_session.refresh(prediction)
+    return prediction
+
+
 # JWT Token Fixtures
 @pytest.fixture()
 def jwt_token_factory() -> Callable[[str, str, str], str]:

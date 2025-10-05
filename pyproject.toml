@@ -32,6 +32,7 @@ dependencies = [
     "email-normalize>=1.1.0",
     "reverse_geocoder>=1.5.1",
     "aioboto3>=13.0.0",
+    "orjson>=3.10.0",
 ]
 
 [project.optional-dependencies]

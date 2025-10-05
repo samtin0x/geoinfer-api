@@ -1,0 +1,25 @@
+DEFAULT_TRANSLATIONS = {
+    "en": {
+        "reply_to": "saul@geoinfer.com",
+        "subject": "Your GeoInfer Access is Ready",
+        "site_name": "GeoInfer",
+        "registration_url": "https://app.geoinfer.com/en/signin",
+        "greeting": "Hello,",
+        "title": "Welcome to GeoInfer",
+        "subtitle": "Your early access is now active",
+        "message_paragraphs": [
+            "Great news! We're granting you access to GeoInfer.",
+            "You can now predict GPS coordinates from images using our AI-powered API.",
+            "Your account includes 15 free credits to get started. Reply to this email if you'd like us to grant more credits for your testing needs.",
+        ],
+        "button_text": "Complete Registration",
+        "beta_title": "Getting Started",
+        "beta_note": "Use your free credits to make your first predictions in minutes.",
+        "credits_title": "Free Credits",
+        "credits_note": "15 free credits included. Reply to request additional credits.",
+        "contact_note": "Questions or needs? Just reply to this email.",
+        "signature_name": "Saul Martin",
+        "signature_title": "CEO, GeoInfer",
+        "footer": "You're receiving this because your GeoInfer waitlist access has been granted.",
+    },
+}

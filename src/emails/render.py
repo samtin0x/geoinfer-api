@@ -4,7 +4,7 @@ from typing import Literal, TypedDict, get_args
 
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 
-TemplateType = Literal["invite"]
+TemplateType = Literal["invite", "waitlist"]
 LocaleType = Literal["de", "en", "es", "fr", "it", "ja", "pt", "zh"]
 SUPPORTED_LOCALES = get_args(LocaleType)
 

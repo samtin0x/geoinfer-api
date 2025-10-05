@@ -56,6 +56,13 @@ SKIP_AUTH_PATHS = {
     "/v1/billing/catalog",
 }
 
+SKIP_AUTH_PATTERNS: list = [
+    (
+        "GET",
+        r"^/v1/prediction/[a-fA-F0-9-]+/share$",
+    ),  # GET shared prediction (public viewing)
+]
+
 API_KEY_ALLOWED_ENDPOINTS = {
     "/v1/prediction/predict",
 }

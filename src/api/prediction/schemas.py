@@ -1,7 +1,10 @@
 """Prediction API schemas (combined models/requests)."""
 
+from uuid import UUID
+
 from pydantic import BaseModel, HttpUrl
 from src.api.core.messages import APIResponse, Paginated
+from src.database.models.feedback import FeedbackType
 
 
 class LocationInfo(BaseModel):
@@ -28,7 +31,6 @@ class CoordinatePrediction(Coordinates):
 class PredictionResult(BaseModel):
     predictions: list[CoordinatePrediction]
     processing_time_ms: int
-    top_prediction: CoordinatePrediction | None = None
 
 
 class PredictionUrlRequest(BaseModel):
@@ -41,17 +43,18 @@ class PredictionUploadRequest(BaseModel):
 
 class PredictionResponse(BaseModel):
     prediction: PredictionResult
+    prediction_id: UUID
 
 
 class PredictionHistoryRecord(BaseModel):
 
     model_config = {"from_attributes": True}
 
-    id: str
-    organization_id: str
-    user_id: str | None
+    id: UUID
+    organization_id: UUID
+    user_id: UUID | None
     user_name: str | None
-    api_key_id: str | None
+    api_key_id: UUID | None
     api_key_name: str | None
     processing_time_ms: int | None
     credits_consumed: int | None
@@ -64,11 +67,11 @@ class PredictionHistoryRecord(BaseModel):
     ) -> "PredictionHistoryRecord":
         """Create a PredictionHistoryRecord from a Prediction ORM object and additional data."""
         return cls(
-            id=str(prediction.id),
-            organization_id=str(prediction.organization_id),
-            user_id=str(prediction.user_id) if prediction.user_id else None,
+            id=prediction.id,
+            organization_id=prediction.organization_id,
+            user_id=prediction.user_id if prediction.user_id else None,
             user_name=user_name,
-            api_key_id=str(prediction.api_key_id) if prediction.api_key_id else None,
+            api_key_id=prediction.api_key_id if prediction.api_key_id else None,
             api_key_name=api_key_name,
             processing_time_ms=prediction.processing_time_ms,
             credits_consumed=prediction.credits_consumed,
@@ -92,7 +95,29 @@ class PredictionHistoryResponse(BaseModel):
     predictions: Paginated[PredictionHistoryRecord]
 
 
+class CreateShareRequest(BaseModel):
+    prediction_id: UUID
+    result_data: PredictionResult
+
+
+class SharedPredictionResponse(BaseModel):
+    prediction_id: UUID
+    share_url: str
+    result_data: PredictionResult
+    image_url: str
+    is_active: bool
+    created_at: str
+
+
+class FeedbackRequest(BaseModel):
+    feedback: FeedbackType
+    comment: str | None = None
+
+
 PredictionUrlResponse = APIResponse[PredictionResponse]
 PredictionUploadResponse = APIResponse[PredictionResponse]
 FreePredictionResponse = APIResponse[PredictionResult]
 PredictionHistoryPaginated = APIResponse[Paginated[PredictionHistoryRecord]]
+CreateShareResponse = APIResponse[SharedPredictionResponse]
+GetSharedPredictionResponse = APIResponse[SharedPredictionResponse]
+AddFeedbackResponse = APIResponse[bool]

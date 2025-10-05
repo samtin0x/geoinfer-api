@@ -12,6 +12,8 @@ from .organizations import (
     PlanTier,
 )
 from .predictions import Prediction
+from .shared import SharedPrediction
+from .feedback import PredictionFeedback, FeedbackType
 from .roles import UserOrganizationRole
 from .subscriptions import TopUp, Subscription, SubscriptionStatus, UsagePeriod
 from .usage import OperationType, UsageRecord, UsageType
@@ -43,5 +45,8 @@ __all__ = [
     "Invitation",
     "UserOrganizationRole",
     "Prediction",
+    "SharedPrediction",
+    "PredictionFeedback",
+    "FeedbackType",
     "CreditGrant",
 ]

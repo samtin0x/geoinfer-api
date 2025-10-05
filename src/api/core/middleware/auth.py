@@ -5,9 +5,10 @@ from fastapi import Request, status
 from src.api.core.constants import (
     API_KEY_HEADER,
     SKIP_AUTH_PATHS,
+    SKIP_AUTH_PATTERNS,
     API_KEY_ALLOWED_ENDPOINTS,
 )
-from src.utils.path_helpers import path_matches
+from src.utils.path_helpers import path_matches, path_matches_pattern
 from src.api.core.messages import MessageCode
 from src.api.core.exceptions.base import GeoInferException
 from src.database.connection import get_async_db
@@ -38,7 +39,11 @@ async def auth_middleware(request: Request, call_next):
     )
 
     # Skip authentication for OPTIONS requests (CORS preflight) and certain endpoints
-    if request.method == "OPTIONS" or path_matches(request.url.path, SKIP_AUTH_PATHS):
+    if (
+        request.method == "OPTIONS"
+        or path_matches(request.url.path, SKIP_AUTH_PATHS)
+        or path_matches_pattern(request.url.path, SKIP_AUTH_PATTERNS, request.method)
+    ):
         logger.debug(
             "Skipping auth for path/method",
             path=request.url.path,
@@ -47,6 +52,7 @@ async def auth_middleware(request: Request, call_next):
         )
         request.state.user = None
         request.state.api_key = None
+        request.state.organization = None
         return await call_next(request)
 
     # Get required headers

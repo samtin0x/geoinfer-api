@@ -40,3 +40,9 @@ class Prediction(Base):
     user = relationship("User", back_populates="predictions")
     organization = relationship("Organization", back_populates="predictions")
     api_key = relationship("ApiKey", back_populates="predictions")
+    shared_items = relationship(
+        "SharedPrediction",
+        back_populates="prediction",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )

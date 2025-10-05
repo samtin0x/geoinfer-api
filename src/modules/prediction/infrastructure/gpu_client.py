@@ -78,14 +78,9 @@ class GPUServerClient:
                 )
             )
 
-        top_prediction = None
-        if predictions:
-            top_prediction = predictions[0]
-
         return PredictionResult(
             predictions=predictions,
             processing_time_ms=data.get("processing_time_ms", 0),
-            top_prediction=top_prediction,
         )
 
 
