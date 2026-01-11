@@ -12,7 +12,7 @@ from src.database.models import (
     GrantType,
     UsagePeriod,
     UsageRecord,
-    UsageType,
+    ModelType,
     OperationType,
     TopUp,
     Organization,
@@ -300,7 +300,7 @@ class TestDatabaseSchema:
             id=uuid4(),
             organization_id=test_organization.id,
             credits_consumed=100,
-            usage_type=UsageType.GEOINFER_GLOBAL_0_0_1,
+            model_type=ModelType.GLOBAL,
             subscription_id=subscription.id,
             operation_type=OperationType.CONSUMPTION,
         )
@@ -312,7 +312,7 @@ class TestDatabaseSchema:
         assert retrieved is not None
         assert retrieved.organization_id == test_organization.id
         assert retrieved.credits_consumed == 100
-        assert retrieved.usage_type == UsageType.GEOINFER_GLOBAL_0_0_1
+        assert retrieved.model_type == ModelType.GLOBAL
         assert retrieved.subscription_id == subscription.id
         assert retrieved.operation_type == OperationType.CONSUMPTION
 

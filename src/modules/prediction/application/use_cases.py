@@ -3,7 +3,6 @@ import time
 import uuid
 from uuid import UUID
 
-import numpy as np
 from fastapi import Request, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -19,36 +18,45 @@ from src.core.base import BaseService
 from src.database.models.predictions import Prediction
 from src.database.models.users import User
 from src.database.models.api_keys import ApiKey
-from src.database.models.usage import UsageType
+from src.database.models.usage import ModelType
+from src.modules.prediction.models import ModelId
 from src.modules.prediction.infrastructure.gpu_client import GPUServerClient
+from src.modules.prediction.placeholders import (
+    PLACEHOLDER_VEHICLE_RESULT,
+    PLACEHOLDER_PROPERTY_RESULT,
+)
 
 logger = logging.getLogger(__name__)
 
 
-async def predict_coordinates_from_upload(
+async def predict_from_upload(
     request: Request,
     image_data: bytes,
     gpu_client: GPUServerClient,
+    model_type: ModelType,
     top_k: int = 5,
     db: AsyncSession | None = None,
     current_user: AuthenticatedUserContext | None = None,
     input_filename: str | None = None,
     save_to_db: bool = True,
     credits_consumed: int | None = None,
-    usage_type: UsageType | None = None,
+    model_id: ModelId | None = None,
 ) -> tuple[PredictionResult, UUID]:
     """
-    Predict GPS coordinates from uploaded image data via GPU server.
+    Predict from uploaded image data via GPU server.
 
     Args:
         request: FastAPI request object
         image_data: Image bytes to process
         gpu_client: GPU server client instance
+        model_type: Type of model to use (Global, Accuracy, Property, Cars)
         top_k: Number of top predictions to return
         db: Database session (required if save_to_db=True)
         current_user: Current authenticated user (required if save_to_db=True)
         input_filename: Filename for the uploaded file
         save_to_db: Whether to save prediction to database
+        credits_consumed: Number of credits consumed for this prediction
+        model_id: Specific model version used
 
     Returns:
         Tuple of (PredictionResult, prediction_id)
@@ -65,13 +73,31 @@ async def predict_coordinates_from_upload(
         )
 
     try:
-        # Call GPU server for prediction
-        result = await gpu_client.predict_from_bytes(image_data, top_k=top_k)
+        result: PredictionResult
+
+        match model_type:
+            case ModelType.GLOBAL | ModelType.ACCURACY:
+                # Only these models are supported on GPU server
+                result = await gpu_client.predict_from_bytes(image_data, top_k=top_k)
+
+            case ModelType.CARS:
+                # TODO: Implement GPU support - using static placeholder
+                result = PLACEHOLDER_VEHICLE_RESULT
+
+            case ModelType.PROPERTY:
+                # TODO: Implement GPU support - using static placeholder
+                result = PLACEHOLDER_PROPERTY_RESULT
 
         processing_time_ms = int((time.time() - start_time) * 1000)
 
         # Save to database if requested and we have the required parameters
-        if save_to_db and db is not None and current_user is not None:
+        # TODO: Add support for saving to database for all models
+        if (
+            save_to_db
+            and db is not None
+            and current_user is not None
+            and model_type in (ModelType.GLOBAL)
+        ):
             await save_prediction_to_db(
                 db=db,
                 prediction_id=prediction_id,
@@ -80,7 +106,8 @@ async def predict_coordinates_from_upload(
                 api_key_id=(current_user.api_key.id if current_user.api_key else None),
                 processing_time_ms=processing_time_ms,
                 credits_consumed=credits_consumed,
-                usage_type=usage_type or UsageType.GEOINFER_GLOBAL_0_0_1,
+                model_type=model_type,
+                model_id=model_id.value if model_id else None,
             )
 
         return result, prediction_id
@@ -94,7 +121,7 @@ async def predict_coordinates_from_upload(
             details={"description": "Prediction service temporarily unavailable"},
         )
     except Exception as e:
-        logger.error(f"Error predicting coordinates from uploaded image: {e}")
+        logger.error(f"Error predicting from uploaded image: {e}")
         raise GeoInferException(
             MessageCode.PREDICTION_FAILED,
             status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -110,7 +137,8 @@ async def save_prediction_to_db(
     api_key_id: UUID | None,
     processing_time_ms: int | None = None,
     credits_consumed: int | None = None,
-    usage_type: UsageType = UsageType.GEOINFER_GLOBAL_0_0_1,
+    model_type: ModelType = ModelType.GLOBAL,
+    model_id: str | None = None,
 ) -> None:
     """Save prediction tracking to the database."""
 
@@ -121,28 +149,12 @@ async def save_prediction_to_db(
         api_key_id=api_key_id,
         processing_time_ms=processing_time_ms,
         credits_consumed=credits_consumed,
-        usage_type=usage_type,
+        model_type=model_type,
+        model_id=model_id,
     )
 
     db.add(prediction)
     await db.commit()
-
-
-def calculate_haversine_distance(
-    lat1: float, lon1: float, lat2: float, lon2: float
-) -> float:
-    """Calculate the Haversine distance between two points in kilometers."""
-    rad_np = np.float64(6378137.0)  # Radius of the Earth (in meters)
-
-    lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
-
-    dlat = lat2 - lat1
-    dlon = lon2 - lon1
-
-    a = np.sin(dlat / 2) ** 2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2) ** 2
-    c = 2 * np.arcsin(np.sqrt(a))
-    km = (rad_np * c) / 1000
-    return float(km)
 
 
 class PredictionHistoryService(BaseService):

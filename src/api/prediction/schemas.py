@@ -1,10 +1,32 @@
 """Prediction API schemas (combined models/requests)."""
 
+from enum import Enum
+from typing import Annotated, Any, Literal, Union
 from uuid import UUID
 
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl, TypeAdapter
+
 from src.api.core.messages import APIResponse, Paginated
 from src.database.models.feedback import FeedbackType
+from src.database.models.usage import ModelType
+from src.modules.prediction.models import ModelId
+
+
+# ============================================================
+# Shared Models
+# ============================================================
+
+
+class Coordinates(BaseModel):
+    """Coordinates model."""
+
+    latitude: float
+    longitude: float
+
+
+# ============================================================
+# Global / Accuracy Models (Coordinate-based)
+# ============================================================
 
 
 class LocationInfo(BaseModel):
@@ -16,21 +38,107 @@ class LocationInfo(BaseModel):
     country_code: str  # ISO country code
 
 
-class Coordinates(BaseModel):
-
-    latitude: float
-    longitude: float
-
-
 class CoordinatePrediction(Coordinates):
-    confidence: float
+    """Single coordinate prediction result for Global/Accuracy models."""
+
+    confidence: float  # 0-100 percentage
     rank: int
     location: LocationInfo | None = None
 
 
-class PredictionResult(BaseModel):
+class CoordinatePredictionResult(BaseModel):
+    """Result from Global/Accuracy prediction request."""
+
+    result_type: Literal["coordinates"] = "coordinates"
     predictions: list[CoordinatePrediction]
     processing_time_ms: int
+
+
+# ============================================================
+# Cars Model (Vehicle Recognition)
+# ============================================================
+
+
+class VehiclePrediction(BaseModel):
+    """Single vehicle match result."""
+
+    make: str  # e.g., "Mercedes-Benz"
+    model: str  # e.g., "S-Class"
+    year: str  # e.g., "2023" or "2020-2023"
+    confidence: float  # 0-100 percentage
+    variant: str | None = None  # e.g., "S 580 4MATIC"
+    images: list[str] = []  # Reference image URLs
+
+
+class VehiclePredictionResult(BaseModel):
+    """Result from Cars prediction request.
+
+    TODO: Remove placeholder once GPU server supports vehicle recognition.
+    """
+
+    result_type: Literal["vehicle"] = "vehicle"
+    predictions: list[VehiclePrediction]
+    processing_time_ms: int
+
+
+# ============================================================
+# Property Model (Hotels & Vacation Rentals)
+# ============================================================
+
+
+class PropertyCategory(str, Enum):
+    HOTEL = "hotel"
+    VACATION_RENTAL = "vacation_rental"
+
+
+class PropertyPrediction(BaseModel):
+    """Single property match result."""
+
+    name: str  # e.g., "Grand Hyatt Tokyo"
+    location: str  # e.g., "Roppongi Hills, Tokyo"
+    country: str  # e.g., "Japan"
+    coordinates: Coordinates
+    confidence: float  # 0-100 percentage
+    category: PropertyCategory
+    address: str | None = None  # Full street address
+    images: list[str] = []  # Reference image URLs
+
+
+class PropertyPredictionResult(BaseModel):
+    """Result from Property prediction request.
+
+    TODO: Remove placeholder once GPU server supports property recognition.
+    """
+
+    result_type: Literal["property"] = "property"
+    predictions: list[PropertyPrediction]
+    processing_time_ms: int
+
+
+# ============================================================
+# Discriminated Union for PredictionResult
+# ============================================================
+
+PredictionResult = Annotated[
+    Union[
+        CoordinatePredictionResult,
+        VehiclePredictionResult,
+        PropertyPredictionResult,
+    ],
+    Field(discriminator="result_type"),
+]
+
+
+def parse_prediction_result(
+    data: dict[str, Any],
+) -> CoordinatePredictionResult | VehiclePredictionResult | PropertyPredictionResult:
+    """Parse dict/JSON into the correct PredictionResult type using discriminator."""
+    return TypeAdapter(PredictionResult).validate_python(data)
+
+
+# ============================================================
+# API Request/Response Models
+# ============================================================
 
 
 class PredictionUrlRequest(BaseModel):
@@ -44,6 +152,8 @@ class PredictionUploadRequest(BaseModel):
 class PredictionResponse(BaseModel):
     prediction: PredictionResult
     prediction_id: UUID
+    model_id: ModelId
+    credits_consumed: int
 
 
 class PredictionHistoryRecord(BaseModel):
@@ -58,7 +168,8 @@ class PredictionHistoryRecord(BaseModel):
     api_key_name: str | None
     processing_time_ms: int | None
     credits_consumed: int | None
-    usage_type: str | None
+    model_type: ModelType | None
+    model_id: ModelId | None
     created_at: str
 
     @classmethod
@@ -75,16 +186,10 @@ class PredictionHistoryRecord(BaseModel):
             api_key_name=api_key_name,
             processing_time_ms=prediction.processing_time_ms,
             credits_consumed=prediction.credits_consumed,
-            usage_type=(
-                prediction.usage_type.value
-                if prediction.usage_type is not None
-                and hasattr(prediction.usage_type, "value")
-                else (
-                    str(prediction.usage_type)
-                    if prediction.usage_type is not None
-                    else None
-                )
+            model_type=(
+                ModelType(prediction.model_type) if prediction.model_type else None
             ),
+            model_id=ModelId(prediction.model_id) if prediction.model_id else None,
             created_at=prediction.created_at.isoformat(),
         )
 

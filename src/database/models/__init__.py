@@ -16,7 +16,7 @@ from .shared import SharedPrediction
 from .feedback import PredictionFeedback, FeedbackType
 from .roles import UserOrganizationRole
 from .subscriptions import TopUp, Subscription, SubscriptionStatus, UsagePeriod
-from .usage import OperationType, UsageRecord, UsageType
+from .usage import ModelType, OperationType, UsageRecord
 from .users import User
 
 # Export all models and enums
@@ -25,7 +25,7 @@ __all__ = [
     "Base",
     # Enums
     "PlanTier",
-    "UsageType",
+    "ModelType",
     "SubscriptionStatus",
     "InvitationStatus",
     "OrganizationRole",

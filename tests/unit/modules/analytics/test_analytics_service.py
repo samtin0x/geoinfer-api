@@ -4,7 +4,7 @@ from uuid import uuid4
 from sqlalchemy import select, and_
 
 from src.analytics.service import AnalyticsService
-from src.database.models import UsageRecord, User, Organization, UsageType
+from src.database.models import UsageRecord, User, Organization, ModelType
 
 
 @pytest.mark.asyncio
@@ -35,7 +35,7 @@ async def test_get_usage_timeseries_daily_grouping(db_session):
             user_id=user.id,
             organization_id=org.id,
             credits_consumed=10 + i,
-            usage_type=UsageType.GEOINFER_GLOBAL_0_0_1,
+            model_type=ModelType.GLOBAL,
             created_at=record_date,
             api_key_id=None,
         )

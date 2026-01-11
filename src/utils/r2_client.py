@@ -15,8 +15,11 @@ logger = logging.getLogger(__name__)
 class R2Client:
     """Client for uploading images to Cloudflare R2 (S3-compatible storage)."""
 
-    def __init__(self, settings: R2Settings | None = None):
+    def __init__(
+        self, settings: R2Settings | None = None, upload_predictions: bool = True
+    ):
         self.settings = settings or R2Settings()
+        self.upload_predictions = upload_predictions
         self._session: aioboto3.Session | None = None
 
     def _get_session(self) -> aioboto3.Session:
@@ -114,6 +117,11 @@ class R2Client:
         ip_address: str | None = None,
         extra_metadata: dict | None = None,
     ) -> str | None:
+        # Skip uploads if disabled (e.g., in non-production environments)
+        if not self.upload_predictions:
+            logger.debug("R2 prediction uploads disabled, skipping")
+            return None
+
         key = self._generate_key(
             organization_id=organization_id,
             filename=filename,

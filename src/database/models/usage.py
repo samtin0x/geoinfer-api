@@ -10,8 +10,13 @@ from sqlalchemy.orm import Mapped, mapped_column
 from .base import Base
 
 
-class UsageType(str, Enum):
-    GEOINFER_GLOBAL_0_0_1 = "geoinfer_global_0_0_1"
+class ModelType(str, Enum):
+    """Model types for tracking and pricing predictions."""
+
+    GLOBAL = "global"
+    ACCURACY = "accuracy"
+    PROPERTY = "property"
+    CARS = "cars"
 
 
 class OperationType(str, Enum):
@@ -25,9 +30,10 @@ class UsageRecord(Base):
     id: Mapped[UUID] = mapped_column(UUID, primary_key=True, default=uuid.uuid4)
     user_id: Mapped[UUID | None] = mapped_column(UUID, nullable=True)
     credits_consumed: Mapped[int] = mapped_column(Integer, nullable=False)
-    usage_type: Mapped[UsageType] = mapped_column(
-        String, nullable=False, default=UsageType.GEOINFER_GLOBAL_0_0_1
+    model_type: Mapped[ModelType] = mapped_column(
+        String, nullable=False, default=ModelType.GLOBAL
     )
+    model_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     api_key_id: Mapped[UUID | None] = mapped_column(UUID, nullable=True)
     organization_id: Mapped[UUID] = mapped_column(UUID, nullable=False)
     subscription_id: Mapped[UUID | None] = mapped_column(UUID, nullable=True)

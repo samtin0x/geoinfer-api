@@ -89,16 +89,23 @@ class UserOnboardingService(BaseService):
             user_id=user_id,
         )
 
-        await self._create_stripe_customer_for_organization(organization, email)
+        await self._create_stripe_customer_for_organization(organization, user)
 
-        await self._send_welcome_email(email, locale)
+        await self._send_welcome_email(user.email, user.locale)
 
         return user, organization
 
     async def _create_stripe_customer_for_organization(
-        self, organization: Organization, email: str
+        self,
+        organization: Organization,
+        user: User,
     ) -> None:
-        """Create a Stripe customer for the organization during onboarding."""
+        """Create a Stripe customer for the organization during onboarding.
+
+        Args:
+            organization: The organization to create the customer for
+            user: The user being onboarded (provides email, name, and locale)
+        """
         try:
             import stripe
             from src.utils.settings.stripe import StripeSettings
@@ -106,15 +113,27 @@ class UserOnboardingService(BaseService):
             # Set Stripe API key
             stripe.api_key = StripeSettings().STRIPE_SECRET_KEY.get_secret_value()
 
-            # Create Stripe customer
-            customer = stripe.Customer.create(
-                email=email,
-                name=organization.name,
-                metadata={
+            # Build customer creation params
+            customer_params: dict = {
+                "email": user.email,
+                "name": user.name or organization.name,
+                "metadata": {
                     "organization_id": str(organization.id),
                     "organization_name": organization.name,
                 },
-            )
+            }
+
+            # Add user name to metadata if provided
+            if user.name:
+                customer_params["metadata"]["user_name"] = user.name
+
+            # Set preferred locale for Stripe communications (invoices, receipts, etc.)
+            # Locale comes from JWT claims (user_metadata.locale or payload.locale)
+            if user.locale:
+                customer_params["preferred_locales"] = [user.locale]
+
+            # Create Stripe customer
+            customer = stripe.Customer.create(**customer_params)
 
             # Store customer ID in organization
             organization.stripe_customer_id = customer.id

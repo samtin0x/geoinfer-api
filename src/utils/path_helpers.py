@@ -2,15 +2,21 @@ import re
 from uuid import UUID
 
 from src.api.prediction.schemas import CoordinatePrediction
+from src.database.models.usage import ModelType
+from src.modules.prediction.models import ModelId
 
 
-def build_prediction_metadata(
+def build_r2_image_metadata(
     top_prediction: CoordinatePrediction | None,
     prediction_id: UUID | None = None,
-    model_id: str = "geoinfer_global_0_0_1",
+    model_id: ModelId = ModelId.GLOBAL_V0_1,
+    model_type: ModelType = ModelType.GLOBAL,
 ) -> dict[str, str]:
     """Build metadata dictionary for prediction uploads."""
-    metadata: dict[str, str] = {"model-id": model_id}
+    metadata: dict[str, str] = {
+        "model-id": model_id.value,
+        "model-type": model_type.value,
+    }
 
     if prediction_id:
         metadata["prediction-id"] = str(prediction_id)

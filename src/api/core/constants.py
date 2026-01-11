@@ -14,9 +14,6 @@ PRODUCTION_PREDICT_WINDOW_SECONDS = 60  # 1 minute
 PUBLIC_TRIAL_FREE_PREDICTIONS = 3  # requests per day for public trial endpoints
 PUBLIC_TRIAL_FREE_PREDICTIONS_WINDOW_SECONDS = 86400  # 24 hours
 
-# Token costs
-GLOBAL_MODEL_CREDIT_COST = 1
-
 # credits granted to new trial users during onboarding
 FREE_TRIAL_SIGNUP_CREDIT_AMOUNT = 15
 TRIAL_CREDIT_EXPIRY_DAYS = 15
@@ -53,6 +50,7 @@ SKIP_AUTH_PATHS = {
     "/",
     "/stripe/webhook",
     "/v1/prediction/trial",
+    "/v1/prediction/models",
     "/v1/billing/catalog",
 }
 

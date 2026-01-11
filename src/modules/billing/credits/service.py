@@ -25,7 +25,7 @@ from src.database.models import (
     GrantType,
     UsagePeriod,
     UsageRecord,
-    UsageType,
+    ModelType,
     OperationType,
     TopUp,
 )
@@ -45,6 +45,8 @@ class CreditConsumptionService(BaseService):
         credits_needed: int,
         user_id: UUID | None = None,
         api_key_id: UUID | None = None,
+        model_type: ModelType = ModelType.GLOBAL,
+        model_id: str | None = None,
     ) -> tuple[bool, str]:
         """
         Consume credits following the business logic:
@@ -136,6 +138,8 @@ class CreditConsumptionService(BaseService):
                 grant_id=grant.id,
                 user_id=user_id,
                 api_key_id=api_key_id,
+                model_type=model_type,
+                model_id=model_id,
             )
 
         # 2. Consume from wallet top-ups (earliest expiry first) - works without subscription
@@ -157,6 +161,8 @@ class CreditConsumptionService(BaseService):
                 grant_id=grant.id,
                 user_id=user_id,
                 api_key_id=api_key_id,
+                model_type=model_type,
+                model_id=model_id,
             )
 
         # 3. Use overage if enabled and needed (requires subscription)
@@ -308,12 +314,15 @@ class CreditConsumptionService(BaseService):
         grant_id: UUID | None = None,
         user_id: UUID | None = None,
         api_key_id: UUID | None = None,
+        model_type: ModelType = ModelType.GLOBAL,
+        model_id: str | None = None,
     ) -> None:
         """Record credit consumption in usage records."""
         usage_record = UsageRecord(
             organization_id=organization_id,
             credits_consumed=credits_consumed,
-            usage_type=UsageType.GEOINFER_GLOBAL_0_0_1,
+            model_type=model_type,
+            model_id=model_id,
             subscription_id=subscription_id,
             topup_id=topup_id,
             operation_type=OperationType.CONSUMPTION,

@@ -6,7 +6,7 @@ from sqlalchemy import DateTime, ForeignKey, Integer, String, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
-from .usage import UsageType
+from .usage import ModelType
 
 
 class Prediction(Base):
@@ -26,9 +26,10 @@ class Prediction(Base):
     )
     processing_time_ms: Mapped[int | None] = mapped_column(nullable=True)
     credits_consumed: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    usage_type: Mapped[UsageType | None] = mapped_column(
-        String, nullable=True, default=UsageType.GEOINFER_GLOBAL_0_0_1
+    model_type: Mapped[ModelType | None] = mapped_column(
+        String, nullable=True, default=ModelType.GLOBAL
     )
+    model_id: Mapped[str | None] = mapped_column(String(50), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )

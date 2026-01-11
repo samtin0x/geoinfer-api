@@ -25,6 +25,9 @@ from src.modules.prediction.infrastructure.gpu_client import (
     get_gpu_client,
 )
 from src.utils.r2_client import R2Client
+from src.utils.settings.app import AppSettings
+
+_is_production = AppSettings().ENVIRONMENT.upper() == "PROD"
 
 
 async def get_db_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
@@ -110,8 +113,8 @@ async def get_gpu_server_client() -> GPUServerClient:
 
 
 def get_r2_client() -> R2Client:
-    """Get R2 client."""
-    return R2Client()
+    """Get R2 client. Uploads disabled in non-production environments."""
+    return R2Client(upload_predictions=_is_production)
 
 
 async def get_current_user_authenticated(request: Request) -> AuthenticatedUserContext:

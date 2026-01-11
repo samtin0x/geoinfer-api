@@ -8,7 +8,12 @@ from sqlalchemy import select
 
 from src.api.core.exceptions.base import GeoInferException
 from src.api.core.messages import MessageCode
-from src.api.prediction.schemas import PredictionResult
+from src.api.prediction.schemas import (
+    CoordinatePrediction,
+    CoordinatePredictionResult,
+    parse_prediction_result,
+)
+from src.modules.prediction.models import ModelId
 from src.api.prediction.validators import validate_image_upload
 from src.core.base import BaseService
 from src.core.context import AuthenticatedUserContext
@@ -16,7 +21,7 @@ from src.database.models.predictions import Prediction
 from src.database.models.shared import SharedPrediction
 from src.database.models.feedback import PredictionFeedback, FeedbackType
 from src.utils.r2_client import R2Client
-from src.utils.path_helpers import build_prediction_metadata
+from src.utils.path_helpers import build_r2_image_metadata
 
 
 class SharingService(BaseService):
@@ -55,14 +60,15 @@ class SharingService(BaseService):
         if existing_share:
             return existing_share
 
-        # Parse and validate result data
+        # Parse and validate result data using TypeAdapter for Union types
         result_dict = orjson.loads(result_data_json)
-        prediction_result = PredictionResult(**result_dict)
+        prediction_result = parse_prediction_result(result_dict)
 
-        # Extract top prediction coordinates for metadata (first prediction)
-        top_pred = (
-            prediction_result.predictions[0] if prediction_result.predictions else None
-        )
+        # Extract top prediction for metadata (only coordinate results have lat/lng)
+        top_pred: CoordinatePrediction | None = None
+        if isinstance(prediction_result, CoordinatePredictionResult):
+            if prediction_result.predictions:
+                top_pred = prediction_result.predictions[0]
 
         # Validate and upload image
         file_content = await validate_image_upload(file, 10 * 1024 * 1024)
@@ -74,15 +80,21 @@ class SharingService(BaseService):
             prediction_id=prediction_id,
         )
 
+        # model_id and model_type are guaranteed by migration (defaults to global_v0.1/global)
+        assert prediction.model_id is not None
+        assert prediction.model_type is not None
+
         await r2_client.upload_prediction_image(
             image_data=file_content,
             organization_id=user.organization.id,
             filename=file.filename or "image.bin",
             prediction_id=prediction_id,
             ip_address=None,
-            extra_metadata=build_prediction_metadata(
+            extra_metadata=build_r2_image_metadata(
                 top_prediction=top_pred,
                 prediction_id=prediction_id,
+                model_id=ModelId(prediction.model_id),
+                model_type=prediction.model_type,
             ),
         )
 

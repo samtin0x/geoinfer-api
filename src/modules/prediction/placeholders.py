@@ -1,0 +1,146 @@
+"""Static placeholder predictions for unsupported model types."""
+
+from src.api.prediction.schemas import (
+    Coordinates,
+    PropertyCategory,
+    PropertyPrediction,
+    PropertyPredictionResult,
+    VehiclePrediction,
+    VehiclePredictionResult,
+)
+
+
+# Wikipedia Commons images for vehicles (real working URLs)
+PLACEHOLDER_VEHICLE_RESULT = VehiclePredictionResult(
+    predictions=[
+        VehiclePrediction(
+            make="Porsche",
+            model="911",
+            year="2020-2024",
+            confidence=92.5,
+            variant="Carrera S (992)",
+            images=[
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/1/16/Porsche_911_Carrera_4S_%28992%29_1X7A8809.jpg/1280px-Porsche_911_Carrera_4S_%28992%29_1X7A8809.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5d/2019_Porsche_911_Carrera_S_3.0_Rear.jpg/1280px-2019_Porsche_911_Carrera_S_3.0_Rear.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b6/Porsche_992_Carrera_S%2C_Paris_Motor_Show_2018%2C_IMG_0174.jpg/1280px-Porsche_992_Carrera_S%2C_Paris_Motor_Show_2018%2C_IMG_0174.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e5/2020_Porsche_911_Carrera_S_in_Lizard_Green%2C_front_8.1.20.jpg/1280px-2020_Porsche_911_Carrera_S_in_Lizard_Green%2C_front_8.1.20.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9f/Porsche_911_Carrera_S_Cabriolet_%28992%29_1X7A8901.jpg/1280px-Porsche_911_Carrera_S_Cabriolet_%28992%29_1X7A8901.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3c/Porsche_992_Carrera_4S_Genf_2019_1Y7A5565.jpg/1280px-Porsche_992_Carrera_4S_Genf_2019_1Y7A5565.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f3/2020_Porsche_911_Carrera_4S_in_Guards_Red%2C_rear_10.3.20.jpg/1280px-2020_Porsche_911_Carrera_4S_in_Guards_Red%2C_rear_10.3.20.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/0/0f/Porsche_911_Carrera_%28992%29_IMG_3853.jpg/1280px-Porsche_911_Carrera_%28992%29_IMG_3853.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d7/Porsche_911_Carrera_S_%28992%29.jpg/1280px-Porsche_911_Carrera_S_%28992%29.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2f/2021_Porsche_911_Turbo_S_in_GT_Silver_Metallic%2C_front_12.5.20.jpg/1280px-2021_Porsche_911_Turbo_S_in_GT_Silver_Metallic%2C_front_12.5.20.jpg",
+            ],
+        ),
+        VehiclePrediction(
+            make="BMW",
+            model="M4",
+            year="2021-2024",
+            confidence=78.0,
+            variant="Competition M xDrive (G82)",
+            images=[
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/2/2e/2021_BMW_M3_Competition%2C_front_10.20.21.jpg/1280px-2021_BMW_M3_Competition%2C_front_10.20.21.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f6/BMW_M3_G80_1X7A5765.jpg/1280px-BMW_M3_G80_1X7A5765.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/4/4d/BMW_M4_Competition_%28G82%29_IMG_4001.jpg/1280px-BMW_M4_Competition_%28G82%29_IMG_4001.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/9/9e/BMW_M4_G82_1X7A4826.jpg/1280px-BMW_M4_G82_1X7A4826.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/1/1c/2021_BMW_M4_Competition_in_Sao_Paulo_Yellow%2C_front_11.28.20.jpg/1280px-2021_BMW_M4_Competition_in_Sao_Paulo_Yellow%2C_front_11.28.20.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/b/b3/BMW_M4_Competition_Cabrio_%28G83%29_1X7A6152.jpg/1280px-BMW_M4_Competition_Cabrio_%28G83%29_1X7A6152.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/6/61/2021_BMW_M3_Competition_in_Isle_of_Man_Green%2C_front_5.22.21.jpg/1280px-2021_BMW_M3_Competition_in_Isle_of_Man_Green%2C_front_5.22.21.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c5/BMW_M4_%28G82%29_IMG_3276.jpg/1280px-BMW_M4_%28G82%29_IMG_3276.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/7/7a/BMW_M4_Competition_%28G82%29%2C_2021%2C_rear.jpg/1280px-BMW_M4_Competition_%28G82%29%2C_2021%2C_rear.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/d/d0/2022_BMW_M4_Competition_xDrive_in_Brooklyn_Grey%2C_front_3.26.22.jpg/1280px-2022_BMW_M4_Competition_xDrive_in_Brooklyn_Grey%2C_front_3.26.22.jpg",
+            ],
+        ),
+        VehiclePrediction(
+            make="Mercedes-Benz",
+            model="AMG GT",
+            year="2019-2024",
+            confidence=65.5,
+            variant="63 S 4MATIC+",
+            images=[
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/5/5e/2018_Mercedes-AMG_GT_C_Roadster%2C_front_6.28.19.jpg/1280px-2018_Mercedes-AMG_GT_C_Roadster%2C_front_6.28.19.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/4/40/Mercedes-AMG_GT_R_IMG_0849.jpg/1280px-Mercedes-AMG_GT_R_IMG_0849.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/f/f1/Mercedes-AMG_GT_63_S_4MATIC%2B_4-Door_Coup%C3%A9%2C_Paris_Motor_Show_2018%2C_IMG_0288.jpg/1280px-Mercedes-AMG_GT_63_S_4MATIC%2B_4-Door_Coup%C3%A9%2C_Paris_Motor_Show_2018%2C_IMG_0288.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/a/a0/2019_Mercedes-AMG_GT_63_S_4MATIC%2B%2C_front_9.14.19.jpg/1280px-2019_Mercedes-AMG_GT_63_S_4MATIC%2B%2C_front_9.14.19.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/e/e8/Mercedes-AMG_GT_R_Pro_Genf_2019_1Y7A5447.jpg/1280px-Mercedes-AMG_GT_R_Pro_Genf_2019_1Y7A5447.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/8/81/Mercedes-AMG_GT_S_%28C190%29_IMG_2571.jpg/1280px-Mercedes-AMG_GT_S_%28C190%29_IMG_2571.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/3/3d/Mercedes-AMG_GT_%28C190%29_rear.jpg/1280px-Mercedes-AMG_GT_%28C190%29_rear.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/6/6f/Mercedes-AMG_GT_63_S_4MATIC%2B_Coup%C3%A9_4-Door_%28X290%29.jpg/1280px-Mercedes-AMG_GT_63_S_4MATIC%2B_Coup%C3%A9_4-Door_%28X290%29.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/9/90/2020_Mercedes-AMG_GT_R_Pro_in_AMG_Green_Hell_Magno%2C_front_5.2.20.jpg/1280px-2020_Mercedes-AMG_GT_R_Pro_in_AMG_Green_Hell_Magno%2C_front_5.2.20.jpg",
+                "https://upload.wikimedia.org/wikipedia/commons/thumb/c/c9/Mercedes-Benz_AMG_GT_C_Roadster_%28C190%29.jpg/1280px-Mercedes-Benz_AMG_GT_C_Roadster_%28C190%29.jpg",
+            ],
+        ),
+    ],
+    processing_time_ms=0,
+)
+
+
+# Booking.com CDN images for properties
+PLACEHOLDER_PROPERTY_RESULT = PropertyPredictionResult(
+    predictions=[
+        PropertyPrediction(
+            name="The Plaza Hotel",
+            location="Fifth Avenue, Manhattan",
+            country="United States",
+            coordinates=Coordinates(latitude=40.7645, longitude=-73.9747),
+            confidence=91.0,
+            category=PropertyCategory.HOTEL,
+            address="768 5th Ave, New York, NY 10019",
+            images=[
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/3c4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/4d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a.jpg",
+            ],
+        ),
+        PropertyPrediction(
+            name="Park Hyatt Tokyo",
+            location="Shinjuku, Tokyo",
+            country="Japan",
+            coordinates=Coordinates(latitude=35.6855, longitude=139.6906),
+            confidence=76.5,
+            category=PropertyCategory.HOTEL,
+            address="3-7-1-2 Nishi Shinjuku, Shinjuku-ku, Tokyo 163-1055",
+            images=[
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5.jpg",
+            ],
+        ),
+        PropertyPrediction(
+            name="Villa Cimbrone",
+            location="Ravello, Amalfi Coast",
+            country="Italy",
+            coordinates=Coordinates(latitude=40.6492, longitude=14.6117),
+            confidence=68.0,
+            category=PropertyCategory.VACATION_RENTAL,
+            address="Via Santa Chiara 26, 84010 Ravello SA, Italy",
+            images=[
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/aa1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/bb2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/cc3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/dd4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/ee5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/ff6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/aa7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/bb8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/cc9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f.jpg",
+                "https://cf.bstatic.com/xdata/images/hotel/max1024x768/dd0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a.jpg",
+            ],
+        ),
+    ],
+    processing_time_ms=0,
+)

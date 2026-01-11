@@ -1,7 +1,7 @@
 """Factory for UsageRecord and UsagePeriod models."""
 
 import factory
-from src.database.models import UsageRecord, UsageType, OperationType, UsagePeriod
+from src.database.models import UsageRecord, ModelType, OperationType, UsagePeriod
 from .base import AsyncSQLAlchemyModelFactory, UUIDFactory
 
 
@@ -14,7 +14,10 @@ class UsageRecordFactory(AsyncSQLAlchemyModelFactory[UsageRecord]):
     id = UUIDFactory()
     user_id = UUIDFactory()
     credits_consumed = factory.Faker("random_int", min=1, max=100)
-    usage_type = factory.Faker("enum", enum_cls=UsageType)
+    model_type = factory.Faker("enum", enum_cls=ModelType)
+    model_id = factory.Faker(
+        "random_element", elements=["global_v0.1", "madrid_v0.1", "la_palma_v0.1"]
+    )
     api_key_id = UUIDFactory()
     organization_id = UUIDFactory()
     subscription_id = UUIDFactory()

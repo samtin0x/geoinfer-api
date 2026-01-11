@@ -7,8 +7,8 @@ import aiohttp
 
 from src.api.prediction.schemas import (
     CoordinatePrediction,
+    CoordinatePredictionResult,
     LocationInfo,
-    PredictionResult,
 )
 from src.utils.settings.gpu import gpu_settings
 
@@ -28,8 +28,11 @@ class GPUServerClient:
 
     async def predict_from_bytes(
         self, image_data: bytes, top_k: int = 5
-    ) -> PredictionResult:
-        """Send image bytes to GPU server for prediction."""
+    ) -> CoordinatePredictionResult:
+        """Send image bytes to GPU server for prediction.
+
+        Currently only supports Global/Accuracy coordinate predictions.
+        """
         async with aiohttp.ClientSession() as session:
             form_data = aiohttp.FormData()
             form_data.add_field(
@@ -46,7 +49,7 @@ class GPUServerClient:
                 ) as response:
                     response.raise_for_status()
                     data = await response.json()
-                    return self._parse_prediction_result(data)
+                    return self._parse_coordinate_result(data)
             except aiohttp.ClientError as e:
                 logger.error(f"GPU server request failed: {e}")
                 raise RuntimeError(f"GPU server unavailable: {e}")
@@ -54,8 +57,10 @@ class GPUServerClient:
                 logger.error(f"Unexpected error calling GPU server: {e}")
                 raise
 
-    def _parse_prediction_result(self, data: dict[str, Any]) -> PredictionResult:
-        """Parse GPU server response into PredictionResult."""
+    def _parse_coordinate_result(
+        self, data: dict[str, Any]
+    ) -> CoordinatePredictionResult:
+        """Parse GPU server response into CoordinatePredictionResult."""
         predictions = []
         for pred in data.get("predictions", []):
             location_data = pred.get("location")
@@ -78,7 +83,7 @@ class GPUServerClient:
                 )
             )
 
-        return PredictionResult(
+        return CoordinatePredictionResult(
             predictions=predictions,
             processing_time_ms=data.get("processing_time_ms", 0),
         )
