@@ -20,6 +20,7 @@ from src.core.context import AuthenticatedUserContext
 from src.database.models.predictions import Prediction
 from src.database.models.shared import SharedPrediction
 from src.database.models.feedback import PredictionFeedback, FeedbackType
+from src.database.models.usage import ModelType
 from src.utils.r2_client import R2Client
 from src.utils.path_helpers import build_r2_image_metadata
 
@@ -94,7 +95,7 @@ class SharingService(BaseService):
                 top_prediction=top_pred,
                 prediction_id=prediction_id,
                 model_id=ModelId(prediction.model_id),
-                model_type=prediction.model_type,
+                model_type=ModelType(prediction.model_type),
             ),
         )
 
