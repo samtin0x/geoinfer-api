@@ -11,7 +11,6 @@ class AppSettings(BaseSettings):
         "http://localhost:3050",
         "https://geoinfer.com",
         "https://app.geoinfer.com",
-        "https://*.vercel.app",
     ]
 
     # Admin portal settings
