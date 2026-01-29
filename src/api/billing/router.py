@@ -109,9 +109,9 @@ async def check_usage_alerts(
 async def update_overage_settings(
     request: Request,
     overage_settings: OverageSettingsModel,
+    db: AsyncSessionDep,
+    current_user: CurrentUserAuthDep,
     subscription_id: UUID = Path(..., description="Subscription ID"),
-    db: AsyncSessionDep = None,
-    current_user: CurrentUserAuthDep = None,
 ) -> APIResponse[OverageSettingsResponseModel]:
     billing_service = BillingQueryService(db)
     subscription = await billing_service.update_overage_settings(
@@ -123,7 +123,7 @@ async def update_overage_settings(
 
     return APIResponse.success(
         data=OverageSettingsResponseModel(
-            subscription_id=subscription.id,
+            subscription_id=UUID(str(subscription.id)),
             overage_enabled=subscription.overage_enabled,
             user_extra_cap=subscription.user_extra_cap,
         )
@@ -138,9 +138,9 @@ async def update_overage_settings(
 @require_plan_tier([PlanTier.SUBSCRIBED])
 async def get_alert_settings(
     request: Request,
+    db: AsyncSessionDep,
+    current_user: CurrentUserAuthDep,
     subscription_id: UUID = Path(..., description="Subscription ID"),
-    db: AsyncSessionDep = None,
-    current_user: CurrentUserAuthDep = None,
 ) -> APIResponse[AlertSettingsModel]:
     billing_service = BillingQueryService(db)
     await billing_service.get_subscription(
@@ -161,9 +161,9 @@ async def get_alert_settings(
 async def update_alert_settings(
     request: Request,
     alert_settings_update: AlertSettingsUpdateModel,
+    db: AsyncSessionDep,
+    current_user: CurrentUserAuthDep,
     subscription_id: UUID = Path(..., description="Subscription ID"),
-    db: AsyncSessionDep = None,
-    current_user: CurrentUserAuthDep = None,
 ) -> APIResponse[AlertSettingsModel]:
     billing_service = BillingQueryService(db)
     await billing_service.get_subscription(
@@ -189,10 +189,10 @@ async def update_alert_settings(
 @rate_limit(limit=3, window_seconds=86400)
 async def test_alert_email(
     request: Request,
+    db: AsyncSessionDep,
+    current_user: CurrentUserAuthDep,
     subscription_id: UUID = Path(..., description="Subscription ID"),
     locale: str = "en",
-    db: AsyncSessionDep = None,
-    current_user: CurrentUserAuthDep = None,
 ) -> APIResponse[bool]:
     billing_service = BillingQueryService(db)
     result = await billing_service.send_test_alert(

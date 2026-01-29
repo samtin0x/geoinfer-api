@@ -66,7 +66,7 @@ class CreditConsumptionService(BaseService):
         # Initialize variables for subscription-specific features
         usage_period = None
         alert_settings = None
-        organization_alert_percentages = []
+        organization_alert_percentages: list[float] = []
 
         # Get usage period and alert settings if subscription exists
         if subscription:
@@ -105,6 +105,9 @@ class CreditConsumptionService(BaseService):
         if overage_needed > 0:
             if not subscription or not subscription.overage_enabled:
                 return False, "No credits available"
+
+            if usage_period is None:
+                return False, "No active usage period found"
 
             effective_cap = self._calculate_effective_cap(subscription)
             if (
@@ -166,7 +169,7 @@ class CreditConsumptionService(BaseService):
             )
 
         # 3. Use overage if enabled and needed (requires subscription)
-        if remaining_needed > 0:
+        if remaining_needed > 0 and usage_period is not None:
             # We already validated overage is available in pre-flight check
             usage_period.overage_used += remaining_needed
             remaining_needed = 0
@@ -411,8 +414,8 @@ class CreditConsumptionService(BaseService):
         alert_level: str,
         usage_percentage: float,
         subscription_package: str,
-        alert_message: str = None,
-    ):
+        alert_message: str | None = None,
+    ) -> None:
         """Trigger a usage alert (could send email, webhook, etc.)."""
         # This would be implemented to send alerts via email, webhook, etc.
         # For now, just log the alert

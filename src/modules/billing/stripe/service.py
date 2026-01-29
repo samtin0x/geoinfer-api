@@ -39,11 +39,13 @@ class StripePaymentService(BaseService):
         stripe.api_key = StripeSettings().STRIPE_SECRET_KEY.get_secret_value()
         stripe.api_version = "2025-09-30.clover"
 
-    def get_subscription_package_config(self, package: SubscriptionPackage) -> dict:
+    def get_subscription_package_config(
+        self, package: SubscriptionPackage
+    ) -> SubscriptionPackageConfig | dict[str, object]:
         return SUBSCRIPTION_PACKAGES.get(package, {})
 
-    def get_topup_package_config(self, package: TopupPackage) -> dict:
-        return TOPUP_PACKAGES.get(package, {})
+    def get_topup_package_config(self, package: TopupPackage) -> dict[str, object]:
+        return TOPUP_PACKAGES.get(package, {})  # type: ignore[return-value]
 
     def get_plan_tier_from_subscription(self, subscription: Subscription) -> PlanTier:
         price_id = subscription.stripe_price_base_id
@@ -205,7 +207,7 @@ class StripePaymentService(BaseService):
                     "billing_mode": {"type": "flexible"},
                 }
 
-            checkout_session = stripe.checkout.Session.create(**session_params)
+            checkout_session = stripe.checkout.Session.create(**session_params)  # type: ignore[arg-type]
             return checkout_session
         except StripeError as e:
             raise ValueError(f"Failed to create checkout session: {e}")
@@ -506,7 +508,7 @@ class StripePaymentService(BaseService):
 
         try:
             subscription = await self._find_or_create_subscription(
-                organization.id,
+                UUID(str(organization.id)),
                 subscription_data["id"],
                 package_info,
                 subscription_data,
@@ -740,7 +742,7 @@ class StripePaymentService(BaseService):
                 for package, package_info in SUBSCRIPTION_PACKAGES.items():
                     if package_info.base_price_id == price_id:
                         subscription.monthly_allowance = package_info.monthly_allowance
-                        subscription.overage_unit_price = (
+                        subscription.overage_unit_price = float(
                             package_info.overage_unit_price
                         )
                         break
@@ -753,7 +755,11 @@ class StripePaymentService(BaseService):
                 f"Base billing period changed for subscription {subscription_id}, creating new usage period"
             )
             await self._create_usage_period(subscription)
-        elif metered_period_changed:
+        elif (
+            metered_period_changed
+            and metered_period_start is not None
+            and metered_period_end is not None
+        ):
             # For yearly subscriptions with monthly metered usage, grant monthly credits
             # without creating a new usage period (usage period follows yearly cycle)
             self.logger.info(
@@ -803,7 +809,7 @@ class StripePaymentService(BaseService):
             .where(
                 and_(
                     UsagePeriod.subscription_id == subscription.id,
-                    not UsagePeriod.closed,
+                    UsagePeriod.closed == False,  # noqa: E712
                 )
             )
             .order_by(UsagePeriod.created_at.desc())
@@ -819,7 +825,7 @@ class StripePaymentService(BaseService):
         delta = usage_period.overage_used - usage_period.overage_reported
         if delta > 0:
             try:
-                stripe.billing.MeterEvent.create(
+                stripe.billing.MeterEvent.create(  # type: ignore[attr-defined]
                     event_name=STRIPE_METER_EVENT_NAME,
                     payload={
                         "stripe_customer_id": subscription.stripe_customer_id,
