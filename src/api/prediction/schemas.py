@@ -38,19 +38,20 @@ class LocationInfo(BaseModel):
     country_code: str  # ISO country code
 
 
-class CoordinatePrediction(Coordinates):
-    """Single coordinate prediction result for Global/Accuracy models."""
+class LocationCluster(BaseModel):
+    """A geographic cluster of prediction points."""
 
-    confidence: float  # 0-100 percentage
-    rank: int
-    location: LocationInfo | None = None
+    center: Coordinates
+    location: LocationInfo  # Reverse geocoded from center
+    radius_km: float  # Distance from center to furthest point (max 25km)
+    points: list[Coordinates]  # Individual prediction points in cluster
 
 
 class CoordinatePredictionResult(BaseModel):
     """Result from Global/Accuracy prediction request."""
 
     result_type: Literal["coordinates"] = "coordinates"
-    predictions: list[CoordinatePrediction]
+    clusters: list[LocationCluster]
     processing_time_ms: int
 
 

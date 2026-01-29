@@ -9,8 +9,8 @@ from sqlalchemy import select
 from src.api.core.exceptions.base import GeoInferException
 from src.api.core.messages import MessageCode
 from src.api.prediction.schemas import (
-    CoordinatePrediction,
     CoordinatePredictionResult,
+    LocationCluster,
     parse_prediction_result,
 )
 from src.modules.prediction.models import ModelId
@@ -65,11 +65,11 @@ class SharingService(BaseService):
         result_dict = orjson.loads(result_data_json)
         prediction_result = parse_prediction_result(result_dict)
 
-        # Extract top prediction for metadata (only coordinate results have lat/lng)
-        top_pred: CoordinatePrediction | None = None
+        # Extract top cluster for metadata (only coordinate results have clusters)
+        top_cluster: LocationCluster | None = None
         if isinstance(prediction_result, CoordinatePredictionResult):
-            if prediction_result.predictions:
-                top_pred = prediction_result.predictions[0]
+            if prediction_result.clusters:
+                top_cluster = prediction_result.clusters[0]
 
         # Validate and upload image
         file_content = await validate_image_upload(file, 10 * 1024 * 1024)
@@ -92,7 +92,7 @@ class SharingService(BaseService):
             prediction_id=prediction_id,
             ip_address=None,
             extra_metadata=build_r2_image_metadata(
-                top_prediction=top_pred,
+                top_cluster=top_cluster,
                 prediction_id=prediction_id,
                 model_id=ModelId(prediction.model_id),
                 model_type=ModelType(prediction.model_type),

@@ -1,13 +1,13 @@
 import re
 from uuid import UUID
 
-from src.api.prediction.schemas import CoordinatePrediction
+from src.api.prediction.schemas import LocationCluster
 from src.database.models.usage import ModelType
 from src.modules.prediction.models import ModelId
 
 
 def build_r2_image_metadata(
-    top_prediction: CoordinatePrediction | None,
+    top_cluster: LocationCluster | None = None,
     prediction_id: UUID | None = None,
     model_id: ModelId = ModelId.GLOBAL_V0_1,
     model_type: ModelType = ModelType.GLOBAL,
@@ -21,9 +21,9 @@ def build_r2_image_metadata(
     if prediction_id:
         metadata["prediction-id"] = str(prediction_id)
 
-    if top_prediction:
-        metadata["latitude"] = str(top_prediction.latitude)
-        metadata["longitude"] = str(top_prediction.longitude)
+    if top_cluster:
+        metadata["latitude"] = str(top_cluster.center.latitude)
+        metadata["longitude"] = str(top_cluster.center.longitude)
 
     return metadata
 

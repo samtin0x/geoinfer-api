@@ -34,7 +34,6 @@ async def predict_from_upload(
     image_data: bytes,
     gpu_client: GPUServerClient,
     model_type: ModelType,
-    top_k: int = 5,
     db: AsyncSession | None = None,
     current_user: AuthenticatedUserContext | None = None,
     input_filename: str | None = None,
@@ -45,26 +44,11 @@ async def predict_from_upload(
     """
     Predict from uploaded image data via GPU server.
 
-    Args:
-        request: FastAPI request object
-        image_data: Image bytes to process
-        gpu_client: GPU server client instance
-        model_type: Type of model to use (Global, Accuracy, Property, Cars)
-        top_k: Number of top predictions to return
-        db: Database session (required if save_to_db=True)
-        current_user: Current authenticated user (required if save_to_db=True)
-        input_filename: Filename for the uploaded file
-        save_to_db: Whether to save prediction to database
-        credits_consumed: Number of credits consumed for this prediction
-        model_id: Specific model version used
-
-    Returns:
-        Tuple of (PredictionResult, prediction_id)
+    Returns clustered location predictions with geographic center and radius.
     """
     start_time = time.time()
     prediction_id = uuid.uuid4()
 
-    # Validate image data
     if not image_data:
         raise GeoInferException(
             MessageCode.IMAGE_PROCESSING_ERROR,
@@ -77,8 +61,7 @@ async def predict_from_upload(
 
         match model_type:
             case ModelType.GLOBAL | ModelType.ACCURACY:
-                # Only these models are supported on GPU server
-                result = await gpu_client.predict_from_bytes(image_data, top_k=top_k)
+                result = await gpu_client.predict_from_bytes(image_data)
 
             case ModelType.CARS:
                 # TODO: Implement GPU support - using static placeholder

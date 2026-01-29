@@ -17,9 +17,6 @@ from src.api.core.constants import (
     PRODUCTION_PREDICT_WINDOW_SECONDS,
     PUBLIC_TRIAL_FREE_PREDICTIONS,
     PUBLIC_TRIAL_FREE_PREDICTIONS_WINDOW_SECONDS,
-    MIN_TOP_K,
-    MAX_TOP_K,
-    DEFAULT_TOP_K,
     DEFAULT_PAGE_SIZE,
     MAX_PAGE_SIZE,
 )
@@ -41,7 +38,6 @@ from src.api.prediction.schemas import (
     PredictionResponse,
     PredictionUploadResponse,
     FreePredictionResponse,
-    CoordinatePrediction,
     CoordinatePredictionResult,
     LocationInfo,
     Coordinates,
@@ -126,16 +122,12 @@ async def predict(
     model_id: ModelId = Query(
         default=ModelId.GLOBAL_V0_1, description="Model to use for prediction"
     ),
-    top_k: int = Query(default=DEFAULT_TOP_K, ge=MIN_TOP_K, le=MAX_TOP_K),
     redis_client: redis.Redis = Depends(get_redis_client),
 ) -> APIResponse[PredictionResponse]:
     """
     Run prediction on an uploaded image using the specified model.
 
-    Returns different result types based on model:
-    - Global/Accuracy: Coordinate predictions (geolocation)
-    - Cars: Vehicle identification (make/model/year)
-    - Property: Hotel/vacation rental matching
+    Returns clustered location predictions with geographic center and radius.
 
     Credit costs by model type:
     - Global: 1 credit
@@ -154,7 +146,6 @@ async def predict(
         image_data=file_content,
         gpu_client=gpu_client,
         model_type=model_type,
-        top_k=top_k,
         db=db,
         current_user=current_user,
         input_filename=file.filename,
@@ -163,10 +154,7 @@ async def predict(
         model_id=model_id,
     )
 
-    # Extract top prediction for metadata (only coordinate models have lat/lng)
-    top_pred: CoordinatePrediction | None = None
-    if model_type in (ModelType.GLOBAL, ModelType.ACCURACY) and result.predictions:
-        top_pred = result.predictions[0]  # type: ignore[assignment]
+    top_cluster = result.clusters[0] if hasattr(result, "clusters") else None
 
     background_tasks.add_task(
         r2_client.upload_prediction_image,
@@ -176,7 +164,7 @@ async def predict(
         prediction_id=prediction_id,
         ip_address=get_client_ip(request),
         extra_metadata=build_r2_image_metadata(
-            top_prediction=top_pred,
+            top_cluster=top_cluster,
             prediction_id=prediction_id,
             model_id=model_id,
             model_type=model_type,
@@ -210,9 +198,7 @@ async def trial_predict_location(
     """
     Free trial geolocation prediction (no authentication required).
 
-    Uses Global model only, returns top coordinate prediction.
-    Rate limited to 3 requests per day per IP address.
-    Results are not saved to database.
+    Returns clustered location predictions. Rate limited to 3 requests per day.
     """
     file_content = await validate_image_upload(file, 5 * 1024 * 1024)
 
@@ -221,13 +207,10 @@ async def trial_predict_location(
         image_data=file_content,
         gpu_client=gpu_client,
         model_type=ModelType.GLOBAL,
-        top_k=1,
         save_to_db=False,
     )
 
-    # Global model always returns CoordinatePredictionResult
-    coord_result: CoordinatePredictionResult = result  # type: ignore[assignment]
-    top_pred = coord_result.predictions[0] if coord_result.predictions else None
+    top_cluster = result.clusters[0] if hasattr(result, "clusters") else None
 
     background_tasks.add_task(
         r2_client.upload_prediction_image,
@@ -235,10 +218,10 @@ async def trial_predict_location(
         organization_id=TRIAL_ORG_ID,
         filename=file.filename or "image.bin",
         ip_address=get_client_ip(request),
-        extra_metadata=build_r2_image_metadata(top_prediction=top_pred),
+        extra_metadata=build_r2_image_metadata(top_cluster=top_cluster),
     )
 
-    return APIResponse.success(data=coord_result)
+    return APIResponse.success(data=result)  # type: ignore[arg-type]
 
 
 @router.get("/history", response_model=PredictionHistoryPaginated)
